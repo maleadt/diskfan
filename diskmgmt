@@ -1,0 +1,174 @@
+#!/usr/bin/env julia
+
+include("util.jl")
+include("ipmi.jl")
+include("fan.jl")
+include("cpu.jl")
+include("disk.jl")
+
+using Util
+import Util: debug, trace
+
+# configuration
+const PERIPHERAL_DISKS = [ "ata-WDC_WD30EFRX-68AX9N0_WD-WMC1T0876678",
+                           "ata-WDC_WD30EFRX-68AX9N0_WD-WMC1T0938110",
+                           "ata-WDC_WD30EFRX-68AX9N0_WD-WMC1T0965778",
+                           "ata-WDC_WD30EFRX-68AX9N0_WD-WMC1T0979299" ]
+const SYSTEM_DISKS     = [ "ata-WDC_WD30EFRX-68EUZN0_WD-WMC4N2180527" ]
+const MIN_ACTIVE_DUTY  = 10
+
+function disk_cooling(disks)
+    if isempty(disks)
+        Fan.MIN_DUTY
+    else
+        temps = filter(temp->!isnan(temp), map(Disk.temp, disks))
+        if isempty(temps)
+            warn("Could not query temperature of ", join(disks, ", ", " or "))
+            MIN_ACTIVE_DUTY
+        else
+            maxtemp = maximum(temps)
+            trace("Active disks (", join(disks, ", "), ") at $(maxtemp)°C")
+            scale(maxtemp, SimpleRange(30, 40), SimpleRange(MIN_ACTIVE_DUTY, 100))
+        end
+    end
+end
+
+function scale(value, from::SimpleRange, to::SimpleRange)
+    from_range = from.upper - from.lower
+    to_range = to.upper - to.lower
+    value = clamp(value, from.lower, from.upper)
+    return to.lower + (value-from.lower) * to_range/from_range
+end
+
+function cpu_cooling()
+    temp = CPU.temp()
+    trace("CPU at $(temp)°C")
+    scale(temp, SimpleRange(30, 70), SimpleRange(MIN_ACTIVE_DUTY, 100))
+end
+
+function main(args)
+    ## init
+
+    ENV["USER"] == "root" || error("Run this script as root.")
+
+    info("Checking fan limits")
+    limits_changed = false
+    data = IPMI.sensors()
+    function check_limits!(fan, noncritical, critical, nonrecoverable)
+        if data[fan].noncritical != noncritical ||
+           data[fan].critical != critical ||
+           data[fan].nonrecoverable != nonrecoverable
+            Fan.limits!(fan, noncritical, critical, nonrecoverable)
+           return true
+        end
+        return false
+    end
+    # NOTE: RPM settings need to be %100, or they get rounded anyway
+    ## Arctic F12 PWM CO
+    for fan in ["FAN1", "FAN2", "FAN3", "FANA"]
+        limits_changed |= check_limits!(fan, SimpleRange(200, 1600),
+                                             SimpleRange(200, 1800),
+                                             SimpleRange(100, 2000))
+    end
+    ## boxed Intel cooler
+    limits_changed |= check_limits!("FAN4", SimpleRange(700, 3300),
+                                            SimpleRange(600, 3500),
+                                            SimpleRange(500, 3700))
+    if limits_changed
+        info("Limits have changed")
+        sleep(5)
+    end
+
+    if Fan.mode() != Fan.full
+        info("Enabling manual fan control")
+        Fan.mode!(Fan.full)
+        sleep(5)
+    end
+
+    info("Resolving disk names")
+    function resolve!(disks)
+        _disks = copy(disks)
+        empty!(disks)
+        for disk in _disks
+            if isblockdev(joinpath("/dev", disk))
+                push!(disks, disk)
+            else
+                found = false
+                for dir in readdir("/dev/disk")
+                    path = joinpath("/dev/disk", dir, disk)
+                    islink(path) || continue
+                    push!(disks, basename(realpath(path)))
+                    found = true
+                end
+                found || error("Could not find disk $disk")
+            end
+        end
+    end
+    resolve!(PERIPHERAL_DISKS)
+    resolve!(SYSTEM_DISKS)
+
+
+    ## main
+
+    info("Starting disk usage monitor")
+    disks = Set{String}(PERIPHERAL_DISKS ∪ SYSTEM_DISKS)
+    @async Disk.monitor_usage()
+    active_disks = Set(filter(device->Disk.power(device)==Disk.active, disks))
+
+    info("Entering main loop")
+    current_peripheral_duty = 0
+    current_system_duty = 0
+    while true
+        # did any disk wake up?
+        for device in setdiff(disks, active_disks)
+            usage = Disk.usage(device)
+            usage == nothing && continue
+
+            if usage[1] > 0
+                debug("Disk $device is now active")
+                if Disk.power(device) != Disk.active
+                    warn("Disk $device should be active, but isn't?")
+                else
+                    push!(active_disks, device)
+                end
+            end
+        end
+
+        # do we need to put any disk to sleep?
+        for device in active_disks
+            usage = Disk.usage(device)
+            if usage[2] != nothing && usage[2] == 0     # idle for 5 minutes
+                debug("Putting disk $device to sleep")
+                Disk.power!(device, Disk.sleeping)
+                delete!(active_disks, device)
+            end
+        end
+
+        # control the peripheral fan
+        let duty = disk_cooling(PERIPHERAL_DISKS ∩ active_disks)
+            if current_peripheral_duty != duty
+                debug("Setting peripheral fan to $(duty)%")
+                Fan.duty!(Fan.peripheral, duty)
+                current_peripheral_duty = duty
+            end
+        end
+
+        # control the system fan
+        let duty = max(disk_cooling(SYSTEM_DISKS ∩ active_disks), cpu_cooling())
+            if current_system_duty != duty
+                debug("Setting system fan to $(duty)%")
+                Fan.duty!(Fan.system, duty)
+                current_system_duty = duty
+            end
+        end
+
+        sleep(5)
+    end
+end
+
+try
+    main(ARGS)
+catch ex
+    Fan.mode!(Fan.optimal)
+    rethrow(ex)
+end
