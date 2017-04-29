@@ -49,7 +49,7 @@ end
 function main(args)
     ## init
 
-    ENV["USER"] == "root" || error("Run this script as root.")
+    ccall(:geteuid, Cint, ()) == 0 || error("Run this script as root.")
 
     info("Checking fan limits")
     limits_changed = false
