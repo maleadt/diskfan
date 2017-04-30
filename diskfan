@@ -141,7 +141,7 @@ function main(args)
         # control the peripheral fan
         let duty = disk_cooling(PERIPHERAL_DISKS, PERIPHERAL_DISKS ∩ active_disks)
             if current_peripheral_duty != duty
-                debug("Setting peripheral fan to $(duty)%")
+                debug("Setting peripheral fan to $(round(duty, 1))%")
                 Fan.duty!(Fan.peripheral, duty)
                 current_peripheral_duty = duty
             end
@@ -150,7 +150,7 @@ function main(args)
         # control the system fan
         let duty = max(disk_cooling(SYSTEM_DISKS, SYSTEM_DISKS ∩ active_disks), cpu_cooling())
             if current_system_duty != duty
-                debug("Setting system fan to $(duty)%")
+                debug("Setting system fan to $(round(duty, 1))%")
                 Fan.duty!(Fan.system, duty)
                 current_system_duty = duty
             end
