@@ -1,5 +1,7 @@
 module Util
 
+export range_scale
+
 
 const TRACE = haskey(ENV, "TRACE")
 @inline function trace(io::IO, msg...; prefix="TRACE: ")
@@ -31,6 +33,19 @@ function cache(f::Function, id::String, timeout)
     end
 end
 const value_cache = Dict{String,Tuple{Float64,Any}}()
+
+
+"""Scale a value from one range to another.
+
+   For example, `range_scale(35, 30:60, 0:100)` can be used to determine the required fan speed
+   for a sensor at 35 degrees, requesting 0% duty for 30 degrees and 100% for 60 degrees.
+"""
+function range_scale(value, from::UnitRange, to::UnitRange)
+    from_range = from.stop - from.start
+    to_range = to.stop - to.start
+    value = clamp(value, from.start, from.stop)
+    return to.start + (value-from.start) * to_range/from_range
+end
 
 
 end

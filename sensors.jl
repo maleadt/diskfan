@@ -1,6 +1,7 @@
 module Sensors
 
 using Util
+import Util: debug, trace
 using Disk
 
 
@@ -26,7 +27,9 @@ function cpu()
     # NOTE: we don't use IPMI here because reading from sysfs is much more efficient
     #       (vs. spawning `ipmitool` and parsing its output)
     strval = readline(joinpath(sysfs_thermal, cpu_zone, "temp"))
-    return parse(Int, strval) / 1000
+    temp = parse(Int, strval) / 1000
+    trace("CPU at $(round(temp,1))°C")
+    return temp
 end
 
 
@@ -79,14 +82,16 @@ function disk(device, keep=Disk.sleeping)
         # check temperature attributes
         # FIXME: this isn't terribly robust (are these attributes the correct ones, etc)
         #        but it works for me
-        if haskey(attributes, 194)
-            return parse(Int, attributes[194][9])
+        temp = if haskey(attributes, 194)
+            parse(Int, attributes[194][9])
         elseif haskey(attributes, 231)
-            return parse(Int, attributes[231][9])
+            parse(Int, attributes[231][9])
         else
             warn("Could not find SMART attribute for disk temperature")
             return NaN
         end
+        trace("Disk $(device) at $(round(temp,1))°C")
+        return temp
     end
 end
 
@@ -99,10 +104,12 @@ function ext()
     Util.cache("Sensors.ext", 60) do
         temps = Vector{Float64}()
         for line in eachline(`digitemp_DS9097 -c /etc/digitemp.conf -q -a -o2`)
-            elapsed, temp = split(strip(line))
+            elapsed, strval = split(strip(line))
+            temp = parse(Float64, strval)
             # TODO: what is the invalid sentinel value again? 88?
-            push!(temps, parse(Float64, temp))
+            push!(temps, temp)
         end
+        trace("External sensor(s) at ", join(map(temp->round(temp,1), temps), ", ", " and "), "°C")
         temps
     end
 end
