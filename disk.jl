@@ -1,7 +1,5 @@
 module Disk
 
-using Util
-
 
 """Resolve disk names to their block device name."""
 function resolve!(disks)
@@ -73,68 +71,6 @@ function power!(device, mode::Mode)
     end
 end
 
-const temp_cache = Dict{String,Tuple{Float64,Float64}}()
-
-"""
-   Determine the temperature of a disk in degrees.
-   Caches values for 1 minute to prevent too many SMART queries.
-
-   The `keep` argument determines what state we should not wake the device from.
-   This defaults to SLEEP, as for most drives that's the state we can't read SMART
-   attributes from without waking the drive.
-
-   If the temperature cannot be read, NaN is returned.
-"""
-function temp(device, keep=sleeping)
-    # NOTE: we use smartctl, and not hddtemp, because the latter wakes up drives.
-    #       with smartctl, we can read from a drive in STANDBY (but not from SLEEP)
-    Util.cache("$device.temp", 60) do
-        # determine smartctl command
-        nocheck = if keep == nothing
-            "never"
-        elseif keep == sleeping
-            "sleep"
-        elseif keep == standby
-            "standby"
-        elseif keep == active
-            "idle"
-        else
-            error("invalid wake threshold '$wake_threshold'")
-        end
-        cmd = ignorestatus(`smartctl -A -n $nocheck /dev/$device`)
-
-        # read attributes
-        attributes = Dict{Int, Vector{String}}()
-        at_list = false
-        for line in eachline(cmd)
-            line = chomp(line)
-            isempty(line) && continue
-            if ismatch(r"Device is in (.+) mode", line)
-                return NaN
-            elseif startswith(line, "ID#")
-                at_list = true
-            elseif at_list
-                entries = split(line)
-                id = parse(Int, shift!(entries))
-                attributes[id] = entries
-            end
-        end
-
-        # check temperature attributes
-        # FIXME: this isn't terribly robust (are these attributes the correct ones, etc)
-        #        but it works for me
-        if haskey(attributes, 194)
-            return parse(Int, attributes[194][9])
-        elseif haskey(attributes, 231)
-            return parse(Int, attributes[231][9])
-        else
-            warn("Could not find SMART attribute for disk temperature")
-            return NaN
-        end
-    end
-end
-
-const diskstats = Dict{String,Vector{Vector{Int}}}()
 
 """Monitor disk usage statistics. See `usage(device)`."""
 function monitor_usage()
@@ -156,6 +92,7 @@ function monitor_usage()
         sleep(60)
     end
 end
+const diskstats = Dict{String,Vector{Vector{Int}}}()
 
 """
    Return the usage of a disk, based on the measurements of `monitor_usage()`.

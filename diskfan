@@ -3,13 +3,14 @@
 include("util.jl")
 include("ipmi.jl")
 include("fan.jl")
-include("cpu.jl")
 include("disk.jl")
+include("sensors.jl")
 
 include("config.jl")
 
 using Util
 import Util: debug, trace
+
 
 """Scale a value from one range to another.
 
@@ -23,24 +24,41 @@ function scale(value, from::UnitRange, to::UnitRange)
     return to.start + (value-from.start) * to_range/from_range
 end
 
+"""
+    Query the current air temperature. This is used to determine when to cool.
+"""
+function air_temperature()::Float64
+    temps = filter(temp->!isnan(temp) && 0 <= temp <= 35, Sensors.ext())
+    if isempty(temps)
+        # sensible default
+        return 25
+    else
+        return minimum(temps)
+    end
+end
+
 """Determine the required fan RPM to cool active disks."""
 function disk_cooling(disks)
-    temps = filter(temp->!isnan(temp), map(Disk.temp, disks))
+    temps = filter(temp->!isnan(temp), map(Sensors.disk, disks))
     if isempty(temps)
         warn("Could not query temperature of ", join(disks, ", ", " or "))
         MIN_DUTY
     else
         maxtemp = maximum(temps)
         trace("Disks ", join(disks, ", ", " and "), " at $(maxtemp)°C")
-        scale(maxtemp, 30:40, MIN_DUTY:100)
+        # try to keep disks between 30 and 40 degrees Celsius
+        base_temp = max(floor(Int, air_temperature()), 30)
+        scale(maxtemp, base_temp:40, MIN_DUTY:100)
     end
 end
 
 """Determine the required fan RPM to cool the CPU."""
 function cpu_cooling()
-    temp = CPU.temp()
+    temp = Sensors.cpu()
     trace("CPU at $(temp)°C")
-    scale(temp, 40:70, MIN_DUTY:100)
+    # try to keep the CPU between 40 and 70 degrees Celsius
+    base_temp = max(floor(Int, air_temperature()), 40)
+    scale(temp, base_temp:70, MIN_DUTY:100)
 end
 
 function main(args)
@@ -123,7 +141,7 @@ function main(args)
                 #     waking up from sleep
                 #     SError: { PHYRdyChg CommWake }
                 #   at which point the entire link gets reset...
-                # if using SLEEP, also adjust the threshold for Disk.temp
+                # if using SLEEP, also adjust the threshold for Sensors.disk
                 # (but note that the temperature for disks in SLEEP cannot be read!)
                 Disk.power!(device, Disk.standby)
                 delete!(active_disks, device)
