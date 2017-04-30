@@ -79,22 +79,62 @@ const temp_cache = Dict{String,Tuple{Float64,Float64}}()
 """
    Determine the temperature of a disk in degrees.
    Caches values for 1 minute to prevent too many SMART queries.
+
+   The `keep` argument determines what state we should not wake the device from.
+   This defaults to SLEEP, as for most drives that's the state we can't read SMART
+   attributes from without waking the drive.
+
+   If the temperature cannot be read, NaN is returned.
 """
-function temp(device)
+function temp(device, keep=sleeping)
+    # NOTE: we use smartctl, and not hddtemp, because the latter wakes up drives.
+    #       with smartctl, we can read from a drive in STANDBY (but not from SLEEP)
     if haskey(temp_cache, device) && time()-temp_cache[device][1] <= TEMP_CACHE_TIME
         # continuously reading SMART commands doesn't seem wise, and it's a non-queued
         # command that kills any queued read/write, so cache values for a minute
         return temp_cache[device][2]
     else
-        cmd = `hddtemp -n /dev/$device`
-        output = readlines(cmd)
-        @assert length(output) == 1
-        if contains(output[1], "drive is sleeping")
-            return NaN
+        # determine smartctl command
+        nocheck = if keep == nothing
+            "never"
+        elseif keep == sleeping
+            "sleep"
+        elseif keep == standby
+            "standby"
+        elseif keep == active
+            "idle"
         else
-            temp = parse(Float64, output[1])
-            temp_cache[device] = (time(),temp)
-            return temp
+            error("invalid wake threshold '$wake_threshold'")
+        end
+        cmd = ignorestatus(`smartctl -A -n $nocheck /dev/$device`)
+
+        # read attributes
+        attributes = Dict{Int, Vector{String}}()
+        at_list = false
+        for line in eachline(cmd)
+            line = chomp(line)
+            isempty(line) && continue
+            if ismatch(r"Device is in (.+) mode", line)
+                return NaN
+            elseif startswith(line, "ID#")
+                at_list = true
+            elseif at_list
+                entries = split(line)
+                id = parse(Int, shift!(entries))
+                attributes[id] = entries
+            end
+        end
+
+        # check temperature attributes
+        # FIXME: this isn't terribly robust (are these attributes the correct ones, etc)
+        #        but it works for me
+        if haskey(attributes, 194)
+            return parse(Int, attributes[194][9])
+        elseif haskey(attributes, 231)
+            return parse(Int, attributes[231][9])
+        else
+            warn("Could not find SMART attribute for disk temperature")
+            return NaN
         end
     end
 end

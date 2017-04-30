@@ -24,19 +24,20 @@ function scale(value, from::UnitRange, to::UnitRange)
 end
 
 """Determine the required fan RPM to cool active disks."""
-function disk_cooling(active_disks)
-    if isempty(active_disks)
-        MIN_DUTY
+function disk_cooling(disks, active_disks)
+    # if there's an active disk, always cool a little (to prevent cyclic behavior,
+    # and just to be safe because the disk temperatures are cached for a minute)
+    min_duty = isempty(active_disks) ? MIN_DUTY : MIN_ACTIVE_DUTY
+
+    # check every drive's temperature
+    temps = filter(temp->!isnan(temp), map(Disk.temp, disks))
+    if isempty(temps)
+        warn("Could not query temperature of ", join(disks, ", ", " or "))
+        min_duty
     else
-        temps = filter(temp->!isnan(temp), map(Disk.temp, active_disks))
-        if isempty(temps)
-            warn("Could not query temperature of ", join(active_disks, ", ", " or "))
-            MIN_ACTIVE_DUTY
-        else
-            maxtemp = maximum(temps)
-            trace("Active disks (", join(active_disks, ", "), ") at $(maxtemp)°C")
-            scale(maxtemp, 30:40, MIN_ACTIVE_DUTY:100)
-        end
+        maxtemp = maximum(temps)
+        trace("Disks ", join(disks, ", ", " and "), " at $(maxtemp)°C")
+        scale(maxtemp, 30:40, min_duty:100)
     end
 end
 
@@ -127,13 +128,15 @@ function main(args)
                 #     waking up from sleep
                 #     SError: { PHYRdyChg CommWake }
                 #   at which point the entire link gets reset...
+                # if using SLEEP, also adjust the threshold for Disk.temp
+                # (but note that the temperature for disks in SLEEP cannot be read!)
                 Disk.power!(device, Disk.standby)
                 delete!(active_disks, device)
             end
         end
 
         # control the peripheral fan
-        let duty = disk_cooling(PERIPHERAL_DISKS ∩ active_disks)
+        let duty = disk_cooling(PERIPHERAL_DISKS, PERIPHERAL_DISKS ∩ active_disks)
             if current_peripheral_duty != duty
                 debug("Setting peripheral fan to $(duty)%")
                 Fan.duty!(Fan.peripheral, duty)
@@ -142,7 +145,7 @@ function main(args)
         end
 
         # control the system fan
-        let duty = max(disk_cooling(SYSTEM_DISKS ∩ active_disks), cpu_cooling())
+        let duty = max(disk_cooling(SYSTEM_DISKS, SYSTEM_DISKS ∩ active_disks), cpu_cooling())
             if current_system_duty != duty
                 debug("Setting system fan to $(duty)%")
                 Fan.duty!(Fan.system, duty)
