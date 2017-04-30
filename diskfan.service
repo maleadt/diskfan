@@ -4,7 +4,7 @@ Description=Disk spindow and fan control daemon.
 [Service]
 Environment=DEBUG=1
 Environment=HOME=/root
-ExecStart=/usr/local/bin/julia /opt/diskfan/diskfan
+ExecStart=/opt/diskfan/diskfan
 Type=simple
 Restart=always
 RestartSec=5
