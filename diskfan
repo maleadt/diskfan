@@ -17,6 +17,14 @@ const PERIPHERAL_DISKS = [ "ata-WDC_WD30EFRX-68AX9N0_WD-WMC1T0876678",
 const SYSTEM_DISKS     = [ "ata-WDC_WD30EFRX-68EUZN0_WD-WMC4N2180527" ]
 const MIN_ACTIVE_DUTY  = 10
 
+# NOTE: we put disks in standby, not sleep, because
+# - our munin plugins wake the disk (hddtemp, smartctl)
+# - waking the disks from sleep seems to fail sometimes
+#     exception Emask 0x0 SAct 0x0 SErr 0x50000 action 0x6
+#     waking up from sleep
+#     SError: { PHYRdyChg CommWake }
+#   at which point the entire link gets reset
+
 function disk_cooling(disks)
     if isempty(disks)
         Fan.MIN_DUTY
@@ -139,7 +147,7 @@ function main(args)
             usage = Disk.usage(device)
             if usage[2] != nothing && usage[2] == 0     # idle for 5 minutes
                 debug("Putting disk $device to sleep")
-                Disk.power!(device, Disk.sleeping)
+                Disk.power!(device, Disk.standby)
                 delete!(active_disks, device)
             end
         end
