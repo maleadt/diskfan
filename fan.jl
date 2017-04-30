@@ -7,8 +7,6 @@ module Fan
 using Util
 
 
-const MIN_DUTY = 2
-
 typealias Zone Int8
 
 const system = Zone(0)

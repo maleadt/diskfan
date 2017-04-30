@@ -15,7 +15,11 @@ const PERIPHERAL_DISKS = [ "ata-WDC_WD30EFRX-68AX9N0_WD-WMC1T0876678",
                            "ata-WDC_WD30EFRX-68AX9N0_WD-WMC1T0965778",
                            "ata-WDC_WD30EFRX-68AX9N0_WD-WMC1T0979299" ]
 const SYSTEM_DISKS     = [ "ata-WDC_WD30EFRX-68EUZN0_WD-WMC4N2180527" ]
-const MIN_ACTIVE_DUTY  = 10
+const MIN_DUTY         = 2   # min RPM if there's no active device
+const MIN_ACTIVE_DUTY  = 10  # min RPM if there's an active device, without significant temp load
+
+# NOTE: disregarding the sensor lower limits, a duty cycle of 2 seems like the minimal value
+#       where the BMC doesn't kick in and makes the fan spin at full power
 
 """Scale a value from one range to another.
 
@@ -32,7 +36,7 @@ end
 """Determine the required fan RPM to cool active disks."""
 function disk_cooling(active_disks)
     if isempty(active_disks)
-        Fan.MIN_DUTY
+        MIN_DUTY
     else
         temps = filter(temp->!isnan(temp), map(Disk.temp, active_disks))
         if isempty(temps)
@@ -50,7 +54,7 @@ end
 function cpu_cooling()
     temp = CPU.temp()
     trace("CPU at $(temp)°C")
-    scale(temp, 30:70, Fan.MIN_DUTY:100)
+    scale(temp, 30:70, MIN_DUTY:100)
 end
 
 function main(args)
@@ -70,7 +74,9 @@ function main(args)
         end
         return false
     end
-    # NOTE: RPM settings need to be %100, or they get rounded anyway
+    # NOTE: RPM settings need to be divisible by 100, or they get rounded anyway
+    # NOTE: MIN_DUTY should be chosen in terms of the lower bounds, ie. setting MIN_DUTY
+    #       shouldn't make the RPM drop below any of the lower limits configured here
     ## Arctic F12 PWM CO
     for fan in ["FAN1", "FAN2", "FAN3", "FANA"]
         limits_changed |= check_limits!(fan, 200:1600, 200:1800, 100:2000)
