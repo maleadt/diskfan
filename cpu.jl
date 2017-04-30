@@ -1,7 +1,8 @@
 module CPU
 
 
-# NOTE: we don't use IPMI here because spawning a command for every sensor read is costly
+# NOTE: we don't use IPMI here because reading from sysfs is much more efficient
+#       (vs. spawning `ipmitool` and parsing its output)
 
 const sysfs_thermal = "/sys/class/thermal"
 
@@ -20,6 +21,7 @@ for entry in readdir(sysfs_thermal)
 end
 isdefined(:cpu_zone) || error("Could not find CPU thermal zone")
 
+"""Determine the current CPU temperature in degrees."""
 function temp()
     strval = readline(joinpath(sysfs_thermal, cpu_zone, "temp"))
     return parse(Int, strval) / 1000

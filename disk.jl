@@ -6,6 +6,7 @@ const TEMP_CACHE_TIME = 60
 
 @enum Mode active standby sleeping
 
+"""Determine the current power state of a disk, without waking it up."""
 function power(device::String)
     # NOTE: we use smartctl, and not hdparm, because the latter wakes up disk from SLEEP
     #       https://serverfault.com/questions/275364/get-drive-power-state-without-waking-it-up
@@ -43,6 +44,7 @@ function power(device::String)
     end
 end
 
+"""Set the power state of a disk."""
 function power!(device, mode::Mode)
     if mode == standby
         run(pipeline(`hdparm -y /dev/$device`, stdout=DevNull))
@@ -52,6 +54,11 @@ function power!(device, mode::Mode)
 end
 
 const temp_cache = Dict{String,Tuple{Float64,Float64}}()
+
+"""
+   Determine the temperature of a disk in degrees.
+   Caches values for 1 minute to prevent too many SMART queries.
+"""
 function temp(device)
     if haskey(temp_cache, device) && time()-temp_cache[device][1] <= TEMP_CACHE_TIME
         # continuously reading SMART commands doesn't seem wise, and it's a non-queued
@@ -72,6 +79,8 @@ function temp(device)
 end
 
 const diskstats = Dict{String,Vector{Vector{Int}}}()
+
+"""Monitor disk usage statistics. See `usage(device)`."""
 function monitor_usage()
     global diskstats
     while true
@@ -92,7 +101,13 @@ function monitor_usage()
     end
 end
 
-# lavg style: (1 min, 5 min, 15 min), each value `nothing` if not enough data collected yet
+"""
+   Return the usage of a disk, based on the measurements of `monitor_usage()`.
+
+   Returns a (load-average style) tuple of 3 values, (1min, 5min, 15min), where each value
+   represents an indicator of usage (currently: sectors read/written + I/Os in progress)
+   or nothing when not enough data has been collected yet.
+"""
 function usage(device)
     all_stats = get(diskstats, device, Vector{Vector{Int}}())
 

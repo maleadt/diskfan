@@ -17,30 +17,11 @@ const PERIPHERAL_DISKS = [ "ata-WDC_WD30EFRX-68AX9N0_WD-WMC1T0876678",
 const SYSTEM_DISKS     = [ "ata-WDC_WD30EFRX-68EUZN0_WD-WMC4N2180527" ]
 const MIN_ACTIVE_DUTY  = 10
 
-# NOTE: we put disks in standby, not sleep, because
-# - our munin plugins wake the disk (hddtemp, smartctl)
-# - waking the disks from sleep seems to fail sometimes
-#     exception Emask 0x0 SAct 0x0 SErr 0x50000 action 0x6
-#     waking up from sleep
-#     SError: { PHYRdyChg CommWake }
-#   at which point the entire link gets reset
+"""Scale a value from one range to another.
 
-function disk_cooling(disks)
-    if isempty(disks)
-        Fan.MIN_DUTY
-    else
-        temps = filter(temp->!isnan(temp), map(Disk.temp, disks))
-        if isempty(temps)
-            warn("Could not query temperature of ", join(disks, ", ", " or "))
-            MIN_ACTIVE_DUTY
-        else
-            maxtemp = maximum(temps)
-            trace("Active disks (", join(disks, ", "), ") at $(maxtemp)°C")
-            scale(maxtemp, SimpleRange(30, 40), SimpleRange(MIN_ACTIVE_DUTY, 100))
-        end
-    end
-end
-
+   For example, `scale(35, 30:60, 0:100)` can be used to determine the required fan speed
+   for a sensor at 35 degrees, requesting 0% duty for 30 degrees and 100% for 60 degrees.
+"""
 function scale(value, from::SimpleRange, to::SimpleRange)
     from_range = from.upper - from.lower
     to_range = to.upper - to.lower
@@ -48,6 +29,24 @@ function scale(value, from::SimpleRange, to::SimpleRange)
     return to.lower + (value-from.lower) * to_range/from_range
 end
 
+"""Determine the required fan RPM to cool active disks."""
+function disk_cooling(active_disks)
+    if isempty(active_disks)
+        Fan.MIN_DUTY
+    else
+        temps = filter(temp->!isnan(temp), map(Disk.temp, active_disks))
+        if isempty(temps)
+            warn("Could not query temperature of ", join(active_disks, ", ", " or "))
+            MIN_ACTIVE_DUTY
+        else
+            maxtemp = maximum(temps)
+            trace("Active disks (", join(active_disks, ", "), ") at $(maxtemp)°C")
+            scale(maxtemp, SimpleRange(30, 40), SimpleRange(MIN_ACTIVE_DUTY, 100))
+        end
+    end
+end
+
+"""Determine the required fan RPM to cool the CPU."""
 function cpu_cooling()
     temp = CPU.temp()
     trace("CPU at $(temp)°C")
@@ -66,7 +65,7 @@ function main(args)
         if data[fan].noncritical != noncritical ||
            data[fan].critical != critical ||
            data[fan].nonrecoverable != nonrecoverable
-            Fan.limits!(fan, noncritical, critical, nonrecoverable)
+            IPMI.limits!(fan, noncritical, critical, nonrecoverable)
            return true
         end
         return false
@@ -146,7 +145,14 @@ function main(args)
         for device in active_disks
             usage = Disk.usage(device)
             if usage[2] != nothing && usage[2] == 0     # idle for 5 minutes
-                debug("Putting disk $device to sleep")
+                debug("Suspending disk $device")
+                # NOTE: we put disks in standby, not sleep, because
+                # - munin plugins (hddtemp, smartctl) wake the disk from sleep, but not standby
+                # - waking the disks from sleep seems to fail sometimes:
+                #     exception Emask 0x0 SAct 0x0 SErr 0x50000 action 0x6
+                #     waking up from sleep
+                #     SError: { PHYRdyChg CommWake }
+                #   at which point the entire link gets reset...
                 Disk.power!(device, Disk.standby)
                 delete!(active_disks, device)
             end

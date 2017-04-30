@@ -19,6 +19,7 @@ const optimal = Mode(2)
 const heavyio = Mode(4)
 
 
+"""Query the fan mode of a zone."""
 function mode()
     output = readlines(`ipmitool raw 0x30 0x45 0x00`)
     @assert length(output) == 1
@@ -26,11 +27,13 @@ function mode()
     return parse(Mode, strval)
 end
 
+"""Set the fan mode of a zone."""
 function mode!(mode::Mode)
     run(pipeline(`ipmitool raw 0x30 0x45 0x01 0x$(hex(mode, 2))`, stdout=DevNull))
 end
 
 
+"""Query the requested fan duty cycle of a zone."""
 function duty(zone::Zone)
     output = readlines(`ipmitool raw 0x30 0x70 0x66 0x00 0x$(hex(zone, 2))`)
     @assert length(output) == 1
@@ -38,26 +41,13 @@ function duty(zone::Zone)
     return parse(Int, strval)
 end
 
+"""
+   Set the requested fan duty cycle of a zone.
+   This might need the current mode to be `full`.
+"""
 function duty!(zone::Zone, val)
     pct = trunc(Int, clamp(val, 0, 100))
     run(pipeline(`ipmitool raw 0x30 0x70 0x66 0x01 0x$(hex(zone, 2)) 0x$(hex(pct, 2))`, stdout=DevNull))
-end
-
-
-function limits!(fan::String, noncritical::SimpleRange{Int}, critical::SimpleRange{Int}, nonrecoverable::SimpleRange{Int})
-    @assert noncritical.lower >= critical.lower >= nonrecoverable.lower
-    @assert noncritical.upper <= critical.upper <= nonrecoverable.upper
-
-    vals = Dict(
-        "unr" => nonrecoverable.upper,
-        "ucr" => critical.upper,
-        "unc" => noncritical.upper,
-        "lnc" => noncritical.lower,
-        "lcr" => critical.lower,
-        "lnr" => nonrecoverable.lower
-    )
-    run(pipeline(`ipmitool sensor thresh $fan lower $(vals["lnr"]) $(vals["lcr"]) $(vals["lnc"])`, stdout=DevNull))
-    run(pipeline(`ipmitool sensor thresh $fan upper $(vals["unc"]) $(vals["ucr"]) $(vals["unr"])`, stdout=DevNull))
 end
 
 

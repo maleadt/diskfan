@@ -15,6 +15,7 @@ function Base.parse(::Type{Status}, str)
     end
 end
 
+
 immutable Reading{T}
     value::T
     unit::AbstractString
@@ -25,6 +26,11 @@ immutable Reading{T}
     nonrecoverable::Union{Void,SimpleRange{T}}
 end
 
+
+"""
+   Decode the output of `ipmitool sensor list`, listing hardware sensors, their unit,
+   current value, and configured limits.
+"""
 function sensors()
     data = Dict{String,Reading}()
 
@@ -72,6 +78,24 @@ function sensors()
     end
 
     return data
+end
+
+
+"""Configure the limits of a sensor."""
+function limits!(id::String, noncritical::SimpleRange, critical::SimpleRange, nonrecoverable::SimpleRange)
+    @assert noncritical.lower >= critical.lower >= nonrecoverable.lower
+    @assert noncritical.upper <= critical.upper <= nonrecoverable.upper
+
+    vals = Dict(
+        "unr" => nonrecoverable.upper,
+        "ucr" => critical.upper,
+        "unc" => noncritical.upper,
+        "lnc" => noncritical.lower,
+        "lcr" => critical.lower,
+        "lnr" => nonrecoverable.lower
+    )
+    run(pipeline(`ipmitool sensor thresh $id lower $(vals["lnr"]) $(vals["lcr"]) $(vals["lnc"])`, stdout=DevNull))
+    run(pipeline(`ipmitool sensor thresh $id upper $(vals["unc"]) $(vals["ucr"]) $(vals["unr"])`, stdout=DevNull))
 end
 
 
