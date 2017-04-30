@@ -4,6 +4,27 @@ module Disk
 const TEMP_CACHE_TIME = 60
 
 
+"""Resolve disk names to their block device name."""
+function resolve!(disks)
+    _disks = copy(disks)
+    empty!(disks)
+    for disk in _disks
+        if isblockdev(joinpath("/dev", disk))
+            push!(disks, disk)
+        else
+            found = false
+            for dir in readdir("/dev/disk")
+                path = joinpath("/dev/disk", dir, disk)
+                islink(path) || continue
+                push!(disks, basename(realpath(path)))
+                found = true
+            end
+            found || error("Could not find disk $disk")
+        end
+    end
+end
+
+
 @enum Mode active standby sleeping
 
 """Determine the current power state of a disk, without waking it up."""

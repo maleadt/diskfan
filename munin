@@ -1,0 +1,70 @@
+#!/usr/bin/env julia
+#
+# Plugin to monitor the drive power state.
+#
+# Parameters:
+#
+#       config
+#       autoconf
+#
+#%# family=auto
+#%# capabilities=autoconf
+
+const root = dirname(realpath(@__FILE__))   # munin plugins are symlinks, so we need this
+include(joinpath(root, "disk.jl"))
+include(joinpath(root, "config.jl"))
+
+function config()
+    println("""
+        graph_title Hard-drive power states
+        graph_args --base 1000 -l 0
+        graph_vlabel number of drives
+        graph_category disk
+        graph_order active standby sleeping
+        active.label active or idle
+        active.colour COLOUR2
+        active.draw AREA
+        standby.label stand-by
+        standby.colour COLOUR0
+        standby.draw STACK
+        sleeping.label sleeping
+        sleeping.colour COLOUR1
+        sleeping.draw STACK""")
+end
+
+function autoconf()
+    println("yes")
+end
+
+function main()
+    Disk.resolve!(PERIPHERAL_DISKS)
+    Disk.resolve!(SYSTEM_DISKS)
+    disks = PERIPHERAL_DISKS ∪ SYSTEM_DISKS
+
+    states = Dict{Disk.Mode,Int}(
+        Disk.active => 0,
+        Disk.standby => 0,
+        Disk.sleeping => 0
+    )
+    for disk in disks
+        state = Disk.power(disk)
+        states[state] += 1
+    end
+
+    for (state, count) in states
+        println("$state.value = $count")
+    end
+end
+
+if length(ARGS) > 0
+    mode = ARGS[1]
+    if mode == "config"
+        config()
+    elseif mode == "autoconf"
+        autoconf()
+    else
+        error("Unknown mode '$mode'")
+    end
+else
+    main()
+end

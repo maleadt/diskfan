@@ -6,20 +6,10 @@ include("fan.jl")
 include("cpu.jl")
 include("disk.jl")
 
+include("config.jl")
+
 using Util
 import Util: debug, trace
-
-# configuration
-const PERIPHERAL_DISKS = [ "ata-WDC_WD30EFRX-68AX9N0_WD-WMC1T0876678",
-                           "ata-WDC_WD30EFRX-68AX9N0_WD-WMC1T0938110",
-                           "ata-WDC_WD30EFRX-68AX9N0_WD-WMC1T0965778",
-                           "ata-WDC_WD30EFRX-68AX9N0_WD-WMC1T0979299" ]
-const SYSTEM_DISKS     = [ "ata-WDC_WD30EFRX-68EUZN0_WD-WMC4N2180527" ]
-const MIN_DUTY         = 2   # min RPM if there's no active device
-const MIN_ACTIVE_DUTY  = 10  # min RPM if there's an active device, without significant temp load
-
-# NOTE: disregarding the sensor lower limits, a duty cycle of 2 seems like the minimal value
-#       where the BMC doesn't kick in and makes the fan spin at full power
 
 """Scale a value from one range to another.
 
@@ -95,26 +85,8 @@ function main(args)
     end
 
     info("Resolving disk names")
-    function resolve!(disks)
-        _disks = copy(disks)
-        empty!(disks)
-        for disk in _disks
-            if isblockdev(joinpath("/dev", disk))
-                push!(disks, disk)
-            else
-                found = false
-                for dir in readdir("/dev/disk")
-                    path = joinpath("/dev/disk", dir, disk)
-                    islink(path) || continue
-                    push!(disks, basename(realpath(path)))
-                    found = true
-                end
-                found || error("Could not find disk $disk")
-            end
-        end
-    end
-    resolve!(PERIPHERAL_DISKS)
-    resolve!(SYSTEM_DISKS)
+    Disk.resolve!(PERIPHERAL_DISKS)
+    Disk.resolve!(SYSTEM_DISKS)
 
 
     ## main
