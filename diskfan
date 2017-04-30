@@ -1,11 +1,11 @@
 #!/usr/bin/env julia
 
-include("util.jl")
-include("ipmi.jl")
-include("fan.jl")
-include("disk.jl")
-include("sensors.jl")
-include("cooling.jl")
+include("lib/util.jl")
+include("lib/ipmi.jl")
+include("lib/fan.jl")
+include("lib/disk.jl")
+include("lib/sensors.jl")
+include("lib/cooling.jl")
 
 include("config.jl")
 
