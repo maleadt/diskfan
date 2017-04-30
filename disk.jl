@@ -1,7 +1,6 @@
 module Disk
 
-
-const TEMP_CACHE_TIME = 60
+using Util
 
 
 """Resolve disk names to their block device name."""
@@ -89,11 +88,7 @@ const temp_cache = Dict{String,Tuple{Float64,Float64}}()
 function temp(device, keep=sleeping)
     # NOTE: we use smartctl, and not hddtemp, because the latter wakes up drives.
     #       with smartctl, we can read from a drive in STANDBY (but not from SLEEP)
-    if haskey(temp_cache, device) && time()-temp_cache[device][1] <= TEMP_CACHE_TIME
-        # continuously reading SMART commands doesn't seem wise, and it's a non-queued
-        # command that kills any queued read/write, so cache values for a minute
-        return temp_cache[device][2]
-    else
+    Util.cache("$device.temp", 60) do
         # determine smartctl command
         nocheck = if keep == nothing
             "never"
