@@ -21,8 +21,10 @@ function air_temperature()::Float64
 end
 
 """Calculate fan duty cycle to keep a device within a temperature range."""
-function duty(device, temp, target::UnitRange)
+function duty(device, temp, target::UnitRange{<:Real})
     air_temp = air_temperature()
+    T = promote_type(eltype(air_temp), eltype(target))
+
     if temp < target.start
         trace("No cooling required for $device")
         return 0
@@ -31,7 +33,12 @@ function duty(device, temp, target::UnitRange)
              "exceeds lower-bound temperature of $(round(target.start,1))°C")
         return 0
     else
-        duty = range_scale(temp, target, 0:100)
+        # adjust the target range to compensate for an air temperature > target lower bound
+        # (eg. if we aim for 30:50 with air at 39, it doesn't make sense to cool a 40 degree
+        # device with a fan at 50% duty cycle)
+        adjusted_target = UnitRange(convert(T, max(air_temp, target.start)),
+                                    convert(T, target.stop))
+        duty = range_scale(temp, adjusted_target, 0:100)
         trace("Cooling $device requires fans at $(round(duty,1))%")
         return duty
     end
