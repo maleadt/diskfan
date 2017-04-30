@@ -1,5 +1,9 @@
 module Fan
 
+# NOTE: the raw IPMI commands are for SuperMicro X9/X10/X11 hardware
+#       https://forums.servethehome.com/index.php?resources/supermicro-x9-x10-x11-fan-speed-control.20/
+#       tested on a SuperMicro X11SSH-F
+
 using Util
 
 
