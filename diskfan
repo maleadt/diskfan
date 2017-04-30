@@ -43,7 +43,7 @@ end
 function cpu_cooling()
     temp = CPU.temp()
     trace("CPU at $(temp)°C")
-    scale(temp, SimpleRange(30, 70), SimpleRange(MIN_ACTIVE_DUTY, 100))
+    scale(temp, SimpleRange(30, 70), SimpleRange(Fan.MIN_DUTY, 100))
 end
 
 function main(args)
