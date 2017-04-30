@@ -1,15 +1,5 @@
 module Util
 
-export SimpleRange
-
-
-# FIXME: can't we use regular `UnitRange`, which is much easier to construct using `:`?
-#        problem is, `Float64:Float64` constructs a `FloatRange` without `range.stop`...
-immutable SimpleRange{T}
-    lower::T
-    upper::T
-end
-
 
 const TRACE = haskey(ENV, "TRACE")
 @inline function trace(io::IO, msg...; prefix="TRACE: ")

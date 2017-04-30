@@ -21,9 +21,9 @@ immutable Reading{T}
     unit::AbstractString
     status::Status
 
-    noncritical::Union{Void,SimpleRange{T}}
-    critical::Union{Void,SimpleRange{T}}
-    nonrecoverable::Union{Void,SimpleRange{T}}
+    noncritical::Union{Void,UnitRange{T}}
+    critical::Union{Void,UnitRange{T}}
+    nonrecoverable::Union{Void,UnitRange{T}}
 end
 
 
@@ -70,11 +70,13 @@ function sensors()
         limits = map(str->parse_value(parse_type, data_type, str), strlimits)
 
         # construct objects and save the data
+        # NOTE: can't use `:` to construct UnitRange here, as eg. `colon(Float64, Float64)`
+        #       constructs a `FloatRange` (which doesn't have a `stop`)
         lnr, lcr, lnc, unc, ucr, unr = limits
         data[sensor] = Reading(val, unit, parse(Status, status),
-                               isnan(lnc) ? nothing : SimpleRange{data_type}(lnc, unc),
-                               isnan(lcr) ? nothing : SimpleRange{data_type}(lcr, ucr),
-                               isnan(lnr) ? nothing : SimpleRange{data_type}(lnr, unr))
+                               isnan(lnc) ? nothing : UnitRange{data_type}(lnc, unc),
+                               isnan(lcr) ? nothing : UnitRange{data_type}(lcr, ucr),
+                               isnan(lnr) ? nothing : UnitRange{data_type}(lnr, unr))
     end
 
     return data
@@ -82,17 +84,17 @@ end
 
 
 """Configure the limits of a sensor."""
-function limits!(id::String, noncritical::SimpleRange, critical::SimpleRange, nonrecoverable::SimpleRange)
-    @assert noncritical.lower >= critical.lower >= nonrecoverable.lower
-    @assert noncritical.upper <= critical.upper <= nonrecoverable.upper
+function limits!(id::String, noncritical::UnitRange, critical::UnitRange, nonrecoverable::UnitRange)
+    @assert noncritical.start >= critical.start >= nonrecoverable.start
+    @assert noncritical.stop <= critical.stop <= nonrecoverable.stop
 
     vals = Dict(
-        "unr" => nonrecoverable.upper,
-        "ucr" => critical.upper,
-        "unc" => noncritical.upper,
-        "lnc" => noncritical.lower,
-        "lcr" => critical.lower,
-        "lnr" => nonrecoverable.lower
+        "unr" => nonrecoverable.stop,
+        "ucr" => critical.stop,
+        "unc" => noncritical.stop,
+        "lnc" => noncritical.start,
+        "lcr" => critical.start,
+        "lnr" => nonrecoverable.start
     )
     run(pipeline(`ipmitool sensor thresh $id lower $(vals["lnr"]) $(vals["lcr"]) $(vals["lnc"])`, stdout=DevNull))
     run(pipeline(`ipmitool sensor thresh $id upper $(vals["unc"]) $(vals["ucr"]) $(vals["unr"])`, stdout=DevNull))

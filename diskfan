@@ -22,11 +22,11 @@ const MIN_ACTIVE_DUTY  = 10
    For example, `scale(35, 30:60, 0:100)` can be used to determine the required fan speed
    for a sensor at 35 degrees, requesting 0% duty for 30 degrees and 100% for 60 degrees.
 """
-function scale(value, from::SimpleRange, to::SimpleRange)
-    from_range = from.upper - from.lower
-    to_range = to.upper - to.lower
-    value = clamp(value, from.lower, from.upper)
-    return to.lower + (value-from.lower) * to_range/from_range
+function scale(value, from::UnitRange, to::UnitRange)
+    from_range = from.stop - from.start
+    to_range = to.stop - to.start
+    value = clamp(value, from.start, from.stop)
+    return to.start + (value-from.start) * to_range/from_range
 end
 
 """Determine the required fan RPM to cool active disks."""
@@ -41,7 +41,7 @@ function disk_cooling(active_disks)
         else
             maxtemp = maximum(temps)
             trace("Active disks (", join(active_disks, ", "), ") at $(maxtemp)°C")
-            scale(maxtemp, SimpleRange(30, 40), SimpleRange(MIN_ACTIVE_DUTY, 100))
+            scale(maxtemp, 30:40, MIN_ACTIVE_DUTY:100)
         end
     end
 end
@@ -50,7 +50,7 @@ end
 function cpu_cooling()
     temp = CPU.temp()
     trace("CPU at $(temp)°C")
-    scale(temp, SimpleRange(30, 70), SimpleRange(Fan.MIN_DUTY, 100))
+    scale(temp, 30:70, Fan.MIN_DUTY:100)
 end
 
 function main(args)
@@ -73,14 +73,10 @@ function main(args)
     # NOTE: RPM settings need to be %100, or they get rounded anyway
     ## Arctic F12 PWM CO
     for fan in ["FAN1", "FAN2", "FAN3", "FANA"]
-        limits_changed |= check_limits!(fan, SimpleRange(200, 1600),
-                                             SimpleRange(200, 1800),
-                                             SimpleRange(100, 2000))
+        limits_changed |= check_limits!(fan, 200:1600, 200:1800, 100:2000)
     end
     ## boxed Intel cooler
-    limits_changed |= check_limits!("FAN4", SimpleRange(700, 3300),
-                                            SimpleRange(600, 3500),
-                                            SimpleRange(500, 3700))
+    limits_changed |= check_limits!("FAN4", 700:3300, 600:3500, 500:3700)
     if limits_changed
         info("Limits have changed")
         sleep(5)
