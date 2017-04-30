@@ -43,9 +43,12 @@ end
 
 """Determine the required fan RPM to cool the CPU."""
 function cpu_cooling()
+    # the CPU doesn't really need cooling when it drops below 40 degrees
+    # (especially because we re-check this value every some seconds,
+    #  not every minute like with the `disk_cooling`)
     temp = CPU.temp()
     trace("CPU at $(temp)°C")
-    scale(temp, 30:70, MIN_DUTY:100)
+    scale(temp, 40:70, MIN_DUTY:100)
 end
 
 function main(args)
