@@ -20,33 +20,43 @@ function air_temperature()::Float64
     end
 end
 
-"""Determine the required fan duty cycle to cool disks."""
+"""Calculate fan duty cycle to keep a device within a temperature range."""
+function duty(device, temp, target::UnitRange)
+    air_temp = air_temperature()
+    if temp < target.start
+        trace("No cooling required for $device")
+        return 0
+    elseif temp <= air_temp
+        warn("Cannot cool $device: air temperature of $(round(air_temp,1))°C "*
+             "exceeds lower-bound temperature of $(round(target.start,1))°C")
+        return 0
+    else
+        duty = range_scale(temp, target, 0:100)
+        trace("Cooling $device requires fans at $(round(duty,1))%")
+        return duty
+    end
+end
+
+
+"""
+    Determine the required fan duty cycle to cool disks.
+    Tries to keep each disk between 30 and 40 degrees Celsius.
+"""
 function disk(disks)
     temps = filter(temp->!isnan(temp), map(Sensors.disk, disks))
     if isempty(temps)
         warn("Could not query temperature of ", join(disks, ", ", " or "))
         0
     else
-        temp = maximum(temps)
-
-        # try to keep disks between 30 and 40 degrees Celsius
-        base_temp = max(floor(Int, air_temperature()), 30)
-        duty = range_scale(temp, base_temp:40, 0:100)
-        trace("Disk(s) ", join(disks, ", ", " and "), " require cooling at $(round(duty, 2))%")
-        return duty
+        return duty("disk(s) "*join(disks, ", ", " and "), maximum(temps), 30:40)
     end
 end
 
-"""Determine the required fan duty cycle to cool the CPU."""
-function cpu()
-    temp = Sensors.cpu()
-
-    # try to keep the CPU between 40 and 70 degrees Celsius
-    base_temp = max(floor(Int, air_temperature()), 40)
-    duty = range_scale(temp, base_temp:70, 0:100)
-    trace("CPU requires cooling at $(round(duty, 2))%")
-    duty
-end
+"""
+    Determine the required fan duty cycle to cool the CPU.
+    Tries to keep the CPU between 40 and 70 degrees Celsius.
+"""
+cpu() = duty("CPU", Sensors.cpu(), 40:70)
 
 
 end
