@@ -24,28 +24,20 @@ function scale(value, from::UnitRange, to::UnitRange)
 end
 
 """Determine the required fan RPM to cool active disks."""
-function disk_cooling(disks, active_disks)
-    # if there's an active disk, always cool a little (to prevent cyclic behavior,
-    # and just to be safe because the disk temperatures are cached for a minute)
-    min_duty = isempty(active_disks) ? MIN_DUTY : MIN_ACTIVE_DUTY
-
-    # check every drive's temperature
+function disk_cooling(disks)
     temps = filter(temp->!isnan(temp), map(Disk.temp, disks))
     if isempty(temps)
         warn("Could not query temperature of ", join(disks, ", ", " or "))
-        min_duty
+        MIN_DUTY
     else
         maxtemp = maximum(temps)
         trace("Disks ", join(disks, ", ", " and "), " at $(maxtemp)°C")
-        scale(maxtemp, 30:40, min_duty:100)
+        scale(maxtemp, 30:40, MIN_DUTY:100)
     end
 end
 
 """Determine the required fan RPM to cool the CPU."""
 function cpu_cooling()
-    # the CPU doesn't really need cooling when it drops below 40 degrees
-    # (especially because we re-check this value every some seconds,
-    #  not every minute like with the `disk_cooling`)
     temp = CPU.temp()
     trace("CPU at $(temp)°C")
     scale(temp, 40:70, MIN_DUTY:100)
@@ -139,7 +131,7 @@ function main(args)
         end
 
         # control the peripheral fan
-        let duty = disk_cooling(PERIPHERAL_DISKS, PERIPHERAL_DISKS ∩ active_disks)
+        let duty = disk_cooling(PERIPHERAL_DISKS)
             if current_peripheral_duty != duty
                 debug("Setting peripheral fan to $(round(duty, 1))%")
                 Fan.duty!(Fan.peripheral, duty)
@@ -148,7 +140,7 @@ function main(args)
         end
 
         # control the system fan
-        let duty = max(disk_cooling(SYSTEM_DISKS, SYSTEM_DISKS ∩ active_disks), cpu_cooling())
+        let duty = max(disk_cooling(SYSTEM_DISKS))
             if current_system_duty != duty
                 debug("Setting system fan to $(round(duty, 1))%")
                 Fan.duty!(Fan.system, duty)
