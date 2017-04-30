@@ -7,13 +7,13 @@ module Fan
 using Util
 
 
-typealias Zone Int8
+const Zone = Int8
 
 const system = Zone(0)
 const peripheral = Zone(1)
 
 
-typealias Mode Int8
+const Mode = Int8
 
 const standard = Mode(0)
 const full = Mode(1)
@@ -25,8 +25,7 @@ const heavyio = Mode(4)
 function mode()
     output = readlines(`ipmitool raw 0x30 0x45 0x00`)
     @assert length(output) == 1
-    strval = strip(output[1])
-    return parse(Mode, strval)
+    return parse(Mode, output[1])
 end
 
 """Set the fan mode of a zone."""
@@ -39,8 +38,7 @@ end
 function duty(zone::Zone)
     output = readlines(`ipmitool raw 0x30 0x70 0x66 0x00 0x$(hex(zone, 2))`)
     @assert length(output) == 1
-    strval = strip(output[1])
-    return parse(Int, strval)
+    return parse(Int, output[1])
 end
 
 """

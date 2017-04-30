@@ -13,7 +13,7 @@ for entry in readdir(sysfs_thermal)
     path = joinpath(sysfs_thermal, entry, "type")
     isfile(path) || continue
 
-    thermal_type = chomp(readline(path))
+    thermal_type = readline(path)
     thermal_type == "x86_pkg_temp" || continue
 
     isdefined(:cpu_zone) && error("Multiple CPU thermal zones")
@@ -66,7 +66,6 @@ function disk(device, keep=Disk.sleeping)
         attributes = Dict{Int, Vector{String}}()
         at_list = false
         for line in eachline(cmd)
-            line = chomp(line)
             isempty(line) && continue
             if ismatch(r"Device is in (.+) mode", line)
                 return NaN
@@ -104,7 +103,7 @@ function ext()
     Util.cache("Sensors.ext", 60) do
         temps = Vector{Float64}()
         for line in eachline(`digitemp_DS9097 -c /etc/digitemp.conf -q -a -o2`)
-            elapsed, strval = split(strip(line))
+            elapsed, strval = split(line)
             temp = parse(Float64, strval)
             # TODO: what is the invalid sentinel value again? 88?
             push!(temps, temp)

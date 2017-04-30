@@ -16,7 +16,7 @@ function Base.parse(::Type{Status}, str)
 end
 
 
-immutable Reading{T}
+struct Reading{T}
     value::T
     unit::AbstractString
     status::Status
@@ -34,7 +34,7 @@ end
 function sensors()
     data = Dict{String,Reading}()
 
-    for line in readlines(`ipmitool sensor list`)
+    for line in eachline(`ipmitool sensor list`)
         entries = map(strip, split(line, '|'))
         @assert length(entries) == 10
         sensor, strval, unit, status = entries[1:4]

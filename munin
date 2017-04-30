@@ -10,9 +10,8 @@
 #%# family=auto
 #%# capabilities=autoconf
 
-const root = dirname(realpath(@__FILE__))   # munin plugins are symlinks, so we need this
-include(joinpath(root, "lib", "disk.jl"))
-include(joinpath(root, "config.jl"))
+include(joinpath(@__DIR__, "lib", "disk.jl"))
+include(joinpath(@__DIR__, "config.jl"))
 
 function config()
     println("""
