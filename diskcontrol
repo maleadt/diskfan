@@ -71,6 +71,5 @@ end
 try
     main(ARGS)
 catch ex
-    Fan.mode!(Fan.optimal)
     rethrow(ex)
 end
