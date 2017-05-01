@@ -33,7 +33,7 @@ function cpu()
         strval = readline(joinpath(sysfs_thermal, cpu_zone, "temp"))
         temp = parse(Int, strval) / 1000
         trace("CPU at $(round(temp,1))°C")
-        return temp
+        return temp, true
     end
 end
 
@@ -73,7 +73,7 @@ function disk(device, keep=Disk.sleeping)
         for line in eachline(cmd)
             isempty(line) && continue
             if ismatch(r"Device is in (.+) mode", line)
-                return NaN
+                return NaN, true
             elseif startswith(line, "ID#")
                 at_list = true
             elseif at_list
@@ -92,10 +92,10 @@ function disk(device, keep=Disk.sleeping)
             parse(Int, attributes[231][9])
         else
             warn("Could not find SMART attribute for disk temperature")
-            return NaN
+            return NaN, true
         end
         trace("Disk $(device) at $(round(temp,1))°C")
-        return temp
+        return temp, true
     end
 end
 
@@ -105,16 +105,21 @@ end
    Caches values for 1 minute.
 """
 function ext()
-    Util.cache("Sensors.ext", 60) do
+    Util.cache("Sensors.ext", 300) do
+        proc, out, _ = Util.output_proc(`digitemp_DS9097 -c /etc/digitemp.conf -q -a -o2`)
+        if !success(proc)
+            # probably a transient error, because some other process holds the serial port.
+            # try again later.
+            return [NaN], false
+        end
+
         temps = Vector{Float64}()
-        for line in eachline(`digitemp_DS9097 -c /etc/digitemp.conf -q -a -o2`)
+        for line in eachline(out)
             elapsed, strval = split(line)
-            temp = parse(Float64, strval)
-            # TODO: what is the invalid sentinel value again? 88?
-            push!(temps, temp)
+            push!(temps, parse(Float64, strval))
         end
         trace("External sensor(s) at ", join(map(temp->round(temp,1), temps), ", ", " and "), "°C")
-        temps
+        temps, true
     end
 end
 

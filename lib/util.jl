@@ -26,7 +26,10 @@ end
     Cache sensor readings over `window` amount of seconds, adding new readings once the
     current value expires after `expiry` seconds.
 
-    Returns an array of `Reading`s, each containing the value and a timestamp.
+    Should be used with do-block syntax. The inner function should return a tuple consisting
+    of the value, and a boolean indicating the validity of said value.
+
+    Returns an array of valid `Reading`s, each containing the value and a timestamp.
 """
 function cache(f::Function, id::String, expiry::Real, window::Real)
     now = time()
@@ -34,7 +37,8 @@ function cache(f::Function, id::String, expiry::Real, window::Real)
     # manage readings
     readings = get!(value_cache, id, Reading[])
     if isempty(readings) || (now-readings[end].timestamp) > expiry
-        push!(readings, Reading(now, f()))
+        value, valid = f()
+        valid && push!(readings, Reading(now, value))
     end
     filter!(reading->(now-reading.timestamp)<=window, readings)
 
@@ -81,6 +85,20 @@ function range_scale(value, from::UnitRange, to::UnitRange)
     to_range = to.stop - to.start
     value = clamp(value, from.start, from.stop)
     return to.start + (value-from.start) * to_range/from_range
+end
+
+
+"""Run a command, returning the process and its output streams."""
+function output_proc(cmd::Base.AbstractCmd, stdin=DevNull)
+    stdout = Pipe()
+    stderr = Pipe()
+
+    proc = spawn(cmd, (stdin,stdout,stderr))
+
+    close(stdout.in)
+    close(stderr.in)
+
+    return proc, stdout, stderr
 end
 
 
