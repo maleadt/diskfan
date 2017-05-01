@@ -2,7 +2,6 @@
 Description=Disk control daemon.
 
 [Service]
-Environment=DEBUG=1
 ExecStart=/opt/sysmgmt/diskcontrol
 Type=simple
 Restart=always
