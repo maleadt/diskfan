@@ -1,0 +1,76 @@
+#!/usr/bin/env julia
+
+include("lib/util.jl")
+include("lib/disk.jl")
+
+include("config.jl")
+
+using Util
+import Util: debug
+
+
+function main(args)
+    ## init
+
+    ccall(:geteuid, Cint, ()) == 0 || error("Run this script as root.")
+
+    info("Resolving disk names")
+    Disk.resolve!(PERIPHERAL_DISKS)
+    Disk.resolve!(SYSTEM_DISKS)
+
+
+    ## main
+
+    info("Starting disk usage monitor")
+    disks = Set{String}(PERIPHERAL_DISKS ∪ SYSTEM_DISKS)
+    @async Disk.monitor_usage()
+    active_disks = Set(filter(device->Disk.power(device)==Disk.active, disks))
+
+    info("Entering main loop")
+    current_peripheral_duty = 0
+    current_system_duty = 0
+    while true
+        # did any disk wake up?
+        for device in setdiff(disks, active_disks)
+            usage = Disk.usage(device)
+            usage == nothing && continue
+
+            if usage[1] > 0
+                debug("Disk $device is now active")
+                if Disk.power(device) != Disk.active
+                    warn("Disk $device should be active, but isn't?")
+                else
+                    push!(active_disks, device)
+                end
+            end
+        end
+
+        # do we need to put any disk to sleep?
+        for device in active_disks
+            usage = Disk.usage(device)
+            if usage[2] != nothing && usage[2] == 0     # idle for 5 minutes
+                debug("Suspending disk $device")
+                # NOTE: we put disks in standby, not sleep, because
+                # - munin plugins (hddtemp, smartctl) wake the disk from sleep, but not standby
+                # - waking the disks from sleep seems to fail sometimes:
+                #     exception Emask 0x0 SAct 0x0 SErr 0x50000 action 0x6
+                #     waking up from sleep
+                #     SError: { PHYRdyChg CommWake }
+                #   at which point the entire link gets reset...
+                # if using SLEEP, also adjust the threshold for Sensors.disk
+                # (but note that the temperature for disks in SLEEP cannot be read!)
+                Disk.power!(device, Disk.standby)
+                delete!(active_disks, device)
+            end
+        end
+
+        sleep(5)
+    end
+end
+
+try
+    main(ARGS)
+catch ex
+    Fan.mode!(Fan.optimal)
+    rethrow(ex)
+end

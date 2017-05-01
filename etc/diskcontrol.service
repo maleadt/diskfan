@@ -1,10 +1,10 @@
 [Unit]
-Description=Disk spindow and fan control daemon.
+Description=Disk control daemon.
 
 [Service]
 Environment=DEBUG=1
 Environment=HOME=/root
-ExecStart=/opt/diskfan/diskfan
+ExecStart=/opt/sysmgmt/diskcontrol
 Type=simple
 Restart=always
 RestartSec=5
