@@ -1,5 +1,7 @@
 module Disk
 
+using Util
+
 
 """Resolve disk names to their block device name."""
 function resolve!(disks)
@@ -28,13 +30,14 @@ end
 function power(device::String)
     # NOTE: we use smartctl, and not hdparm, because the latter wakes up disk from SLEEP
     #       https://serverfault.com/questions/275364/get-drive-power-state-without-waking-it-up
-    cmd = ignorestatus(`smartctl -i -n idle /dev/$device`)
-    output = readlines(cmd)
+    proc, out, _ = Util.output_proc(`smartctl -i -n idle /dev/$device`)
+    wait(proc)
+    output = readlines(out)
 
     for line in output
         m = match(r"Device is in (.+) mode", line)
         if m != nothing
-            # FIXME: verify the exitcode of smartctl is 2
+            @assert proc.exitcode == 2
             mode = m.captures[1]
             if mode == "STANDBY"
                 return standby
@@ -47,7 +50,7 @@ function power(device::String)
     end
 
     # at this point, the device should be active or idle, verify to make sure
-    # FIXME: verify the exitcode of smartctl is 0
+    @assert proc.exitcode == 0
     for line in output
         m = match(r"Power mode is:\s+(.+)", line)
         if m != nothing

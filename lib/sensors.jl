@@ -65,14 +65,16 @@ function disk(device, keep=Disk.sleeping)
         else
             error("invalid wake threshold '$wake_threshold'")
         end
-        cmd = ignorestatus(`smartctl -A -n $nocheck /dev/$device`)
+        proc, out, _ = Util.output_proc(`smartctl -A -n $nocheck /dev/$device`)
+        wait(proc)
 
         # read attributes
         attributes = Dict{Int, Vector{String}}()
         at_list = false
-        for line in eachline(cmd)
+        for line in eachline(out)
             isempty(line) && continue
             if ismatch(r"Device is in (.+) mode", line)
+                @assert proc.exitcode == 2
                 return NaN, true
             elseif startswith(line, "ID#")
                 at_list = true
