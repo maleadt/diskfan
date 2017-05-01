@@ -3,7 +3,6 @@ Description=Fan control daemon.
 
 [Service]
 Environment=DEBUG=1
-Environment=HOME=/root
 ExecStart=/opt/sysmgmt/fancontrol
 Type=simple
 Restart=always

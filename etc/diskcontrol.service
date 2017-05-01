@@ -3,7 +3,6 @@ Description=Disk control daemon.
 
 [Service]
 Environment=DEBUG=1
-Environment=HOME=/root
 ExecStart=/opt/sysmgmt/diskcontrol
 Type=simple
 Restart=always
