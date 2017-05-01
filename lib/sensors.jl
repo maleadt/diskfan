@@ -4,6 +4,8 @@ using Util
 import Util: debug, trace
 using Disk
 
+# FIXME: should these sensor functions perform caching/decay/..., or just perform the reads?
+
 
 # find out which thermal zone is the CPU's
 const sysfs_thermal = "/sys/class/thermal"
@@ -24,12 +26,15 @@ isdefined(:cpu_zone) || error("Could not find CPU thermal zone")
 
 """Determine the temperature of the CPU, in degrees Celsius."""
 function cpu()
-    # NOTE: we don't use IPMI here because reading from sysfs is much more efficient
-    #       (vs. spawning `ipmitool` and parsing its output)
-    strval = readline(joinpath(sysfs_thermal, cpu_zone, "temp"))
-    temp = parse(Int, strval) / 1000
-    trace("CPU at $(round(temp,1))°C")
-    return temp
+    # NOTE: CPU temperature is quote finicky, so we use a decaying average
+    Util.cache_and_decay("Sensors.cpu", 5, 60) do
+        # NOTE: we don't use IPMI here because reading from sysfs is much more efficient
+        #       (vs. spawning `ipmitool` and parsing its output)
+        strval = readline(joinpath(sysfs_thermal, cpu_zone, "temp"))
+        temp = parse(Int, strval) / 1000
+        trace("CPU at $(round(temp,1))°C")
+        return temp
+    end
 end
 
 

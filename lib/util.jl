@@ -17,22 +17,58 @@ end
 @inline debug(msg...; kwargs...) = debug(STDERR, msg...; kwargs...)
 
 
-"""
-    Cache a value for a given time. Returns the cached value within that timeout.
-
-    To be used with do-block syntax.
-"""
-function cache(f::Function, id::String, timeout)
-    now = time()
-    if haskey(value_cache, id) && (now-value_cache[id][1]) < timeout
-        return value_cache[id][2]
-    else
-        value = f()
-        value_cache[id] = (now, value)
-        return value
-    end
+immutable Reading
+    timestamp::Float64
+    value
 end
-const value_cache = Dict{String,Tuple{Float64,Any}}()
+
+"""
+    Cache sensor readings over `window` amount of seconds, adding new readings once the
+    current value expires after `expiry` seconds.
+
+    Returns an array of `Reading`s, each containing the value and a timestamp.
+"""
+function cache(f::Function, id::String, expiry::Real, window::Real)
+    now = time()
+
+    # manage readings
+    readings = get!(value_cache, id, Reading[])
+    if isempty(readings) || (now-readings[end].timestamp) > expiry
+        push!(readings, Reading(now, f()))
+    end
+    filter!(reading->(now-reading.timestamp)<=window, readings)
+
+    return readings
+end
+const value_cache = Dict{String,Vector{Reading}}()
+
+"""
+    Cache a single sensor reading until it expires after `expiry` seconds.
+    Directly returns the value.
+"""
+cache(f::Function, id::String, expiry::Real) = cache(f, id, expiry, expiry)[1].value
+
+
+"""
+    Calculates a decaying average of a set of readings, controlling the amount of decay
+    using the `constant` parameter (larger values result in more quickly vanishing values).
+"""
+function decay(readings::Vector{Reading}, window::Real, constant::Real=5)
+    @assert constant >= 0
+    now = time()
+
+    # exponential decay (with t ∈ 0:1):
+    #   reading(t)' = weight(t) * reading(t)
+    #   weight(t) = e^(-t*decay)
+    # but we normalize the weights in order to use a plain `sum` afterwards
+    values = [reading.value for reading in readings]
+    weights = [e^(-constant*(now-reading.timestamp)/window) for reading in readings]
+    normalized_weights = [weight/sum(weights) for weight in weights]
+    return sum(normalized_weights .* values)
+end
+
+cache_and_decay(f::Function, id::String, expiry::Real, window::Real, constant::Real=5) =
+    decay(cache(f, id, expiry, window), window, constant)
 
 
 """Scale a value from one range to another.
