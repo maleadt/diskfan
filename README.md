@@ -1,7 +1,10 @@
-Disk+fan management daemon
---------------------------
+System management scripts
+-------------------------
 
-Daemon for controlling disk power state and fan duty cycle based on activity and
-temperatures. This script is very specific, and not intended to be reusable as a whole.
+Scripts for system management:
 
-Developed for Julia 0.6, with IPMI queries for SuperMicro X9/X10/X11 hardware.
+* fancontrol: set fan speed based on system temperatures
+* diskcontrol: suspend disks based on activity
+
+These scripts are very specific to my system, and are not intended to be reusable as a
+whole. Developed for Julia 0.6, with IPMI queries for SuperMicro X9/X10/X11 hardware.
