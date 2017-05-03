@@ -17,49 +17,81 @@ end
 @inline debug(msg...; kwargs...) = debug(STDERR, msg...; kwargs...)
 
 
-immutable Reading
+immutable Reading{T<:Real}
     timestamp::Float64
-    value
+    value::T
 end
+
+Base.eltype(::Type{Reading{T}}) where {T} = T
 
 """
     Cache sensor readings over `window` amount of seconds, adding new readings once the
     current value expires after `expiry` seconds.
 
-    Should be used with do-block syntax. The inner function should return a tuple consisting
-    of the value, and a boolean indicating the validity of said value.
+    Should be used with do-block syntax. The inner function should return a nullable real,
+    indicating whether a valid value could be acquired.
 
     Returns an array of valid `Reading`s, each containing the value and a timestamp.
 """
 function cache(f::Function, id::String, expiry::Real, window::Real)
     now = time()
 
-    # manage readings
-    readings = get!(value_cache, id, Reading[])
-    if isempty(readings) || (now-readings[end].timestamp) > expiry
-        value, valid = f()
-        valid && push!(readings, Reading(now, value))
+    # if this is the very first cache entry, we need a value in order to create a cache with
+    # the proper type (eg. Vector{Reading{Float64}} instead of Vector{Reading})
+    value = nothing
+    if !haskey(value_cache, id)
+        value = f()::Nullable
+        T = eltype(value)
+        value_cache[id] = Reading{T}[]
     end
+
+    # get and prune readings
+    readings = value_cache[id]
     filter!(reading->(now-reading.timestamp)<=window, readings)
+
+    # add new entries
+    if isempty(readings) || (now-readings[end].timestamp) > expiry
+        if value == nothing
+            # we might have read a value already, to populate value_cache
+            value = f()::Nullable
+        end
+
+        if !isnull(value)
+            push!(readings, Reading(now, get(value)))
+        end
+    end
 
     return readings
 end
-const value_cache = Dict{String,Vector{Reading}}()
+const value_cache = Dict{String,Vector}()
 
 """
     Cache a single sensor reading until it expires after `expiry` seconds.
-    Directly returns the value.
+
+    Returns a nullable real, indicating whether a non-expired value could be acquired.
 """
-cache(f::Function, id::String, expiry::Real) = cache(f, id, expiry, expiry)[1].value
+function cache(f::Function, id::String, expiry::Real)
+    readings = cache(f, id, expiry, expiry)
+    if isempty(readings)
+        return Nullable{eltype(eltype(readings))}()
+    else
+        @assert length(readings) == 1
+        return Nullable(readings[1].value)
+    end
+end
 
 
 """
     Calculates a decaying average of a set of readings, controlling the amount of decay
     using the `constant` parameter (larger values result in more quickly vanishing values).
 """
-function decay(readings::Vector{Reading}, window::Real, constant::Real=5)
+function decay(readings::Vector{Reading{T}}, window::Real, constant::Real=5)::Nullable{T} where {T}
     @assert constant >= 0
     now = time()
+
+    if isempty(readings)
+        return Nullable{T}()
+    end
 
     # exponential decay (with t ∈ 0:1):
     #   reading(t)' = weight(t) * reading(t)
@@ -68,7 +100,9 @@ function decay(readings::Vector{Reading}, window::Real, constant::Real=5)
     values = [reading.value for reading in readings]
     weights = [e^(-constant*(now-reading.timestamp)/window) for reading in readings]
     normalized_weights = [weight/sum(weights) for weight in weights]
-    return sum(normalized_weights .* values)
+    value = convert(T, sum(normalized_weights .* values))
+
+    return Nullable(value)
 end
 
 cache_and_decay(f::Function, id::String, expiry::Real, window::Real, constant::Real=5) =

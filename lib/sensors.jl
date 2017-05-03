@@ -4,7 +4,11 @@ using Util
 import Util: debug, trace
 using Disk
 
-# FIXME: should these sensor functions perform caching/decay/..., or just perform the reads?
+# all these methods return single numbers, wrapped in Nullable's, for sensor readings.
+# if the value is null, a transient error occurred (ie. couldn't be read, try again later).
+# for other errors, exceptions are thrown.
+#
+# the functions themselves are responsible for throttling requests.
 
 
 # find out which thermal zone is the CPU's
@@ -25,17 +29,18 @@ isdefined(:cpu_zone) || error("Could not find CPU thermal zone")
 
 
 """Determine the temperature of the CPU, in degrees Celsius."""
-function cpu()
-    # NOTE: CPU temperature is quote finicky, so we use a decaying average
+function cpu()::Nullable{Float64}
+    # CPU temperature is quote finicky, so we use a decaying average
     Util.cache_and_decay("Sensors.cpu", 5, 60) do
         # NOTE: we don't use IPMI here because reading from sysfs is much more efficient
         #       (vs. spawning `ipmitool` and parsing its output)
         strval = readline(joinpath(sysfs_thermal, cpu_zone, "temp"))
         temp = parse(Int, strval) / 1000
         trace("CPU at $(round(temp,1))°C")
-        return temp, true
+        return Nullable(temp)
     end
 end
+
 
 
 """
@@ -48,10 +53,10 @@ end
 
    If the temperature cannot be read, NaN is returned.
 """
-function disk(device, keep=Disk.sleeping)
+function disk(device::String, keep=Disk.sleeping)::Nullable{Float64}
     Util.cache("Sensors.disk.$device", 60) do
-        # NOTE: we use smartctl, and not hddtemp, because the latter wakes up drives.
-        #       with smartctl, we can read from a drive in STANDBY (but not from SLEEP)
+        # we use smartctl, and not hddtemp, because the latter wakes up drives. with
+        # smartctl, we can read from a drive in STANDBY (but not from SLEEP)
 
         # determine smartctl command
         nocheck = if keep == nothing
@@ -75,7 +80,7 @@ function disk(device, keep=Disk.sleeping)
             isempty(line) && continue
             if ismatch(r"Device is in (.+) mode", line)
                 @assert proc.exitcode == 2
-                return NaN, true
+                return Nullable{Float64}()
             elseif startswith(line, "ID#")
                 at_list = true
             elseif at_list
@@ -93,26 +98,29 @@ function disk(device, keep=Disk.sleeping)
         elseif haskey(attributes, 231)
             parse(Int, attributes[231][9])
         else
-            warn("Could not find SMART attribute for disk temperature")
-            return NaN, true
+            error("Could not find SMART attribute for temperature of disk $device")
         end
-        trace("Disk $(device) at $(round(temp,1))°C")
-        return temp, true
+        trace("Disk $device at $(temp)°C")
+        return Nullable{Float64}(convert(Float64, temp))
     end
 end
 
 
 """
-   Determine the temperature of external sensors, in degrees Celsius.
+   Determine the temperature of an external sensor, in degrees Celsius.
+
    Caches values for 1 minute.
 """
-function ext()
+function ext(id::Int=1)::Nullable{Float64}
+    if id < 1
+        error("invalid sensor id")
+    end
+
     Util.cache("Sensors.ext", 300) do
         proc, out, _ = Util.output_proc(`digitemp_DS9097 -c /etc/digitemp.conf -q -a -o2`)
         if !success(proc)
             # probably a transient error, because some other process holds the serial port.
-            # try again later.
-            return [NaN], false
+            return Nullable{Float64}()
         end
 
         temps = Vector{Float64}()
@@ -121,7 +129,11 @@ function ext()
             push!(temps, parse(Float64, strval))
         end
         trace("External sensor(s) at ", join(map(temp->round(temp,1), temps), ", ", " and "), "°C")
-        temps, true
+
+        if id > length(temps)
+            error("invalid sensor id (requested sensor $id, but only got $(length(temps)) sensors)")
+        end
+        Nullable(temps[id])
     end
 end
 
