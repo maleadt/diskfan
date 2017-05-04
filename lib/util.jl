@@ -122,8 +122,8 @@ function range_scale(value, from::UnitRange, to::UnitRange)
 end
 
 
-"""Run a command, returning the process and its output streams."""
-function output_proc(cmd::Base.AbstractCmd, stdin=DevNull)
+"""Run a command, passing the process and its streams to a lambda (use with do-block)."""
+function execute(f::Function, cmd::Base.AbstractCmd, stdin=DevNull)
     stdout = Pipe()
     stderr = Pipe()
 
@@ -132,7 +132,12 @@ function output_proc(cmd::Base.AbstractCmd, stdin=DevNull)
     close(stdout.in)
     close(stderr.in)
 
-    return proc, stdout, stderr
+    try
+        return f(proc, stdout, stderr)
+    finally
+        close(stdout)
+        close(stderr)
+    end
 end
 
 

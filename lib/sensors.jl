@@ -70,25 +70,36 @@ function disk(device::String, keep=Disk.sleeping)::Nullable{Float64}
         else
             error("invalid wake threshold '$wake_threshold'")
         end
-        proc, out, _ = Util.output_proc(`smartctl -A -n $nocheck /dev/$device`)
-        wait(proc)
 
-        # read attributes
-        attributes = Dict{Int, Vector{String}}()
-        at_list = false
-        for line in eachline(out)
-            isempty(line) && continue
-            if ismatch(r"Device is in (.+) mode", line)
-                @assert proc.exitcode == 2
-                return Nullable{Float64}()
-            elseif startswith(line, "ID#")
-                at_list = true
-            elseif at_list
-                entries = split(line)
-                id = parse(Int, shift!(entries))
-                attributes[id] = entries
+        # read SMART attributes with smartctl
+        attributes = Util.execute(`smartctl -A -n $nocheck /dev/$device`) do proc, out, _
+            wait(proc)
+
+            # parse attributes
+            attributes = Dict{Int, Vector{String}}()
+            at_list = false
+            for line in eachline(out)
+                isempty(line) && continue
+                if ismatch(r"Device is in (.+) mode", line)
+                    @assert proc.exitcode == 2
+                    return Nullable{typeof(attributes)}()
+                elseif startswith(line, "ID#")
+                    at_list = true
+                elseif at_list
+                    entries = split(line)
+                    id = parse(Int, shift!(entries))
+                    attributes[id] = entries
+                end
             end
+
+            Nullable(attributes)
         end
+        if isnull(attributes)
+            return Nullable{Float64}()
+        elseif isempty(get(attributes))
+            error("could not parse attributes")
+        end
+        attributes = get(attributes)
 
         # check temperature attributes
         # FIXME: this isn't terribly robust (are these attributes the correct ones, etc)
@@ -100,6 +111,7 @@ function disk(device::String, keep=Disk.sleeping)::Nullable{Float64}
         else
             error("Could not find SMART attribute for temperature of disk $device")
         end
+
         trace("Disk $device at $(temp)°C")
         return Nullable{Float64}(convert(Float64, temp))
     end
@@ -117,19 +129,30 @@ function ext(id::Int=1)::Nullable{Float64}
     end
 
     Util.cache("Sensors.ext", 300) do
-        proc, out, _ = Util.output_proc(`digitemp_DS9097 -c /etc/digitemp.conf -q -a -o2`)
-        if !success(proc)
-            # probably a transient error, because some other process holds the serial port.
+        # read all external sensors
+        temps = Util.execute(`digitemp_DS9097 -c /etc/digitemp.conf -q -a -o2`) do proc, out, _
+            temps = Vector{Float64}()
+            if !success(proc)
+                # probably a transient error (eg. some other process holding the serial port)
+                return Nullable{typeof(temps)}()
+            end
+
+            # parse lines
+            temps = Vector{Float64}()
+            for line in eachline(out)
+                elapsed, strval = split(line)
+                push!(temps, parse(Float64, strval))
+            end
+
+            trace("External sensor(s) at ", join(map(temp->round(temp,1), temps), ", ", " and "), "°C")
+            Nullable(temps)
+        end
+        if isnull(temps)
             return Nullable{Float64}()
         end
+        temps = get(temps)
 
-        temps = Vector{Float64}()
-        for line in eachline(out)
-            elapsed, strval = split(line)
-            push!(temps, parse(Float64, strval))
-        end
-        trace("External sensor(s) at ", join(map(temp->round(temp,1), temps), ", ", " and "), "°C")
-
+        # return a single temperature
         if id > length(temps)
             error("invalid sensor id (requested sensor $id, but only got $(length(temps)) sensors)")
         end

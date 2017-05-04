@@ -30,14 +30,15 @@ end
 function power(device::String)
     # NOTE: we use smartctl, and not hdparm, because the latter wakes up disk from SLEEP
     #       https://serverfault.com/questions/275364/get-drive-power-state-without-waking-it-up
-    proc, out, _ = Util.output_proc(`smartctl -i -n idle /dev/$device`)
-    wait(proc)
-    output = readlines(out)
+    code, output = Util.execute(`smartctl -i -n idle /dev/$device`) do proc, out, _
+        wait(proc)
+        return proc.exitcode, readlines(out)
+    end
 
     for line in output
         m = match(r"Device is in (.+) mode", line)
         if m != nothing
-            @assert proc.exitcode == 2
+            @assert code == 2
             mode = m.captures[1]
             if mode == "STANDBY"
                 return standby
@@ -50,7 +51,7 @@ function power(device::String)
     end
 
     # at this point, the device should be active or idle, verify to make sure
-    @assert proc.exitcode == 0
+    @assert code == 0
     for line in output
         m = match(r"Power mode is:\s+(.+)", line)
         if m != nothing
