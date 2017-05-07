@@ -45,7 +45,8 @@ function main(args)
                 else
                     push!(active_disks, device)
                 end
-            elseif i%360 == 0   # every 15 minutes
+            elseif i%60 == 0
+                # every 60 minutes, check if all disks assumed inactive really are
                 if Disk.power(device) == Disk.active
                     warn("Disk $device should be inactive, but isn't?")
                     push!(active_disks, device)
@@ -76,7 +77,7 @@ function main(args)
             end
         end
 
-        sleep(5)
+        sleep(60)
         i += 1
     end
 end

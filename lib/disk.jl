@@ -92,7 +92,6 @@ function monitor_usage()
             if length(all_stats) > 16
                 shift!(all_stats)
             end
-            trace("Stats for $device: $all_stats")
         end
 
         sleep(60)
