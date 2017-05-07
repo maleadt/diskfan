@@ -6,7 +6,7 @@ include("lib/disk.jl")
 include("config.jl")
 
 using Util
-import Util: debug
+import Util: debug, trace
 
 
 function main(args)
@@ -29,17 +29,25 @@ function main(args)
     info("Entering main loop")
     current_peripheral_duty = 0
     current_system_duty = 0
+    i = 0
     while true
         # did any disk wake up?
         for device in setdiff(disks, active_disks)
             usage = Disk.usage(device)
-            usage == nothing && continue
+            trace("Suspended disk $device usage: $usage")
+            isnull(usage[1]) && continue
+            usage = get(usage[1])    # 1-min window
 
-            if usage[1] > 0
+            if usage > 0
                 debug("Disk $device is now active")
                 if Disk.power(device) != Disk.active
                     warn("Disk $device should be active, but isn't?")
                 else
+                    push!(active_disks, device)
+                end
+            elseif i%360 == 0   # every 15 minutes
+                if Disk.power(device) == Disk.active
+                    warn("Disk $device should be inactive, but isn't?")
                     push!(active_disks, device)
                 end
             end
@@ -48,7 +56,11 @@ function main(args)
         # do we need to put any disk to sleep?
         for device in active_disks
             usage = Disk.usage(device)
-            if usage[2] != nothing && usage[2] == 0     # idle for 5 minutes
+            trace("Active disk $device usage: $usage")
+            isnull(usage[3]) && continue
+            usage = get(usage[3])    # 15-min window
+
+            if usage == 0
                 debug("Suspending disk $device")
                 # NOTE: we put disks in standby, not sleep, because
                 # - munin plugins (hddtemp, smartctl) wake the disk from sleep, but not standby
@@ -65,6 +77,7 @@ function main(args)
         end
 
         sleep(5)
+        i += 1
     end
 end
 

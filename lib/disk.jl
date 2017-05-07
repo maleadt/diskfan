@@ -1,6 +1,7 @@
 module Disk
 
 using Util
+import Util: trace
 
 
 """Resolve disk names to their block device name."""
@@ -88,9 +89,10 @@ function monitor_usage()
             # save up to 15 sets of stats
             all_stats = get!(diskstats, device, Vector{Vector{Int}}())
             push!(all_stats, stats)
-            if length(all_stats) > 15
+            if length(all_stats) > 16
                 shift!(all_stats)
             end
+            trace("Stats for $device: $all_stats")
         end
 
         sleep(60)
@@ -102,20 +104,21 @@ const diskstats = Dict{String,Vector{Vector{Int}}}()
    Return the usage of a disk, based on the measurements of `monitor_usage()`.
 
    Returns a (load-average style) tuple of 3 values, (1min, 5min, 15min), where each value
-   represents an indicator of usage (currently: sectors read/written + I/Os in progress)
-   or nothing when not enough data has been collected yet.
+   represents an indicator of usage (currently: sectors read/written + I/Os in progress).
+   The values are encapsulated in nullables, being null when there's not enough data yet.
 """
 function usage(device)
     all_stats = get(diskstats, device, Vector{Vector{Int}}())
 
-    function avg_stats(window)
-        length(all_stats) >= window || return nothing
-        stats = all_stats[end-window+1:end]
+    function avg_stats(window)::Nullable{Int}
+        length(all_stats) >= window+1 || return Nullable{Int}()
+        stats = all_stats[end-window:end]
 
         reads =  stats[end][3] - stats[1][3]    # NOTE: we use sectors, as some writes
         writes = stats[end][7] - stats[1][7]    #       don't hit the device (immediately)
         busy =   stats[end][9]
-        return reads+writes+busy
+        trace("Device $device stats over $window minutes: $reads reads, $writes writes, $busy open IOs")
+        return Nullable{Int}(reads+writes+busy)
     end
 
     return avg_stats(1), avg_stats(5), avg_stats(15)
