@@ -4,7 +4,7 @@ module Fan
 #       https://forums.servethehome.com/index.php?resources/supermicro-x9-x10-x11-fan-speed-control.20/
 #       tested on a SuperMicro X11SSH-F
 
-using Util
+using ..Util
 
 
 const Zone = Int8
@@ -30,13 +30,13 @@ end
 
 """Set the fan mode of a zone."""
 function mode!(mode::Mode)
-    run(pipeline(`ipmitool raw 0x30 0x45 0x01 0x$(hex(mode, 2))`, stdout=DevNull))
+    run(pipeline(`ipmitool raw 0x30 0x45 0x01 0x$(string(mode; base=16, pad=2))`, stdout=devnull))
 end
 
 
 """Query the requested fan duty cycle of a zone."""
 function duty(zone::Zone)
-    output = readlines(`ipmitool raw 0x30 0x70 0x66 0x00 0x$(hex(zone, 2))`)
+    output = readlines(`ipmitool raw 0x30 0x70 0x66 0x00 0x$(string(zone; base=16, pad=2))`)
     @assert length(output) == 1
     return parse(Int, output[1])
 end
@@ -47,7 +47,7 @@ end
 """
 function duty!(zone::Zone, val)
     pct = trunc(Int, clamp(val, 0, 100))
-    run(pipeline(`ipmitool raw 0x30 0x70 0x66 0x01 0x$(hex(zone, 2)) 0x$(hex(pct, 2))`, stdout=DevNull))
+    run(pipeline(`ipmitool raw 0x30 0x70 0x66 0x01 0x$(string(zone; base=16, pad=2)) 0x$(string(pct; base=16, pad=2))`, stdout=devnull))
 end
 
 

@@ -1,7 +1,6 @@
 module Disk
 
-using Util
-import Util: trace
+using ..Util
 
 
 """Resolve disk names to their block device name."""
@@ -70,9 +69,9 @@ end
 """Set the power state of a disk."""
 function power!(device, mode::Mode)
     if mode == standby
-        run(pipeline(`hdparm -y /dev/$device`, stdout=DevNull))
+        run(pipeline(`hdparm -y /dev/$device`, stdout=devnull))
     elseif mode == sleeping
-        run(pipeline(`hdparm -Y /dev/$device`, stdout=DevNull))
+        run(pipeline(`hdparm -Y /dev/$device`, stdout=devnull))
     end
 end
 
@@ -90,7 +89,7 @@ function monitor_usage()
             all_stats = get!(diskstats, device, Vector{Vector{Int}}())
             push!(all_stats, stats)
             if length(all_stats) > 16
-                shift!(all_stats)
+                popfirst!(all_stats)
             end
         end
 
@@ -104,20 +103,20 @@ const diskstats = Dict{String,Vector{Vector{Int}}}()
 
    Returns a (load-average style) tuple of 3 values, (1min, 5min, 15min), where each value
    represents an indicator of usage (currently: sectors read/written + I/Os in progress).
-   The values are encapsulated in nullables, being null when there's not enough data yet.
+   When there's not enough data yet, `nothing` is returned.
 """
 function usage(device)
     all_stats = get(diskstats, device, Vector{Vector{Int}}())
 
-    function avg_stats(window)::Nullable{Int}
-        length(all_stats) >= window+1 || return Nullable{Int}()
+    function avg_stats(window)::Union{Int,Nothing}
+        length(all_stats) >= window+1 || return nothing
         stats = all_stats[end-window:end]
 
         reads =  stats[end][3] - stats[1][3]    # NOTE: we use sectors, as some writes
         writes = stats[end][7] - stats[1][7]    #       don't hit the device (immediately)
         busy =   stats[end][9]
-        trace("Device $device stats over $window minutes: $reads reads, $writes writes, $busy open IOs")
-        return Nullable{Int}(reads+writes+busy)
+        @trace "Device $device stats over $window minutes: $reads reads, $writes writes, $busy open IOs"
+        return reads+writes+busy
     end
 
     return avg_stats(1), avg_stats(5), avg_stats(15)

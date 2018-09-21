@@ -1,23 +1,13 @@
 module Util
 
-export range_scale
+export range_scale, @trace
 
-
-const TRACE = haskey(ENV, "TRACE")
-@inline function trace(io::IO, msg...; prefix="TRACE: ")
-    TRACE && print_with_color(:cyan, io, prefix, string(msg...), "\n")
+# FIXME: replace with an additional log level
+macro trace(ex...)
+    esc(:(@debug $(ex...)))
 end
-@inline trace(msg...; kwargs...) = trace(STDERR, msg...; kwargs...)
 
-
-const DEBUG = TRACE || haskey(ENV, "DEBUG")
-@inline function debug(io::IO, msg...; prefix="DEBUG: ")
-    DEBUG && print_with_color(:green, io, prefix, string(msg...), "\n")
-end
-@inline debug(msg...; kwargs...) = debug(STDERR, msg...; kwargs...)
-
-
-immutable Reading{T<:Real}
+struct Reading{T<:Real}
     timestamp::Float64
     value::T
 end
@@ -28,8 +18,8 @@ Base.eltype(::Type{Reading{T}}) where {T} = T
     Cache sensor readings over `window` amount of seconds, adding new readings once the
     current value expires after `expiry` seconds.
 
-    Should be used with do-block syntax. The inner function should return a nullable real,
-    indicating whether a valid value could be acquired.
+    Should be used with do-block syntax. The inner function should return a real, or
+    `nothing` if no valid value could be acquired.
 
     Returns an array of valid `Reading`s, each containing the value and a timestamp.
 """
@@ -38,9 +28,9 @@ function cache(f::Function, id::String, expiry::Real, window::Real)
 
     # if this is the very first cache entry, we need a value in order to create a cache with
     # the proper type (eg. Vector{Reading{Float64}} instead of Vector{Reading})
-    value = nothing
+    value = missing
     if !haskey(value_cache, id)
-        value = f()::Nullable
+        value = f()
         T = eltype(value)
         value_cache[id] = Reading{T}[]
     end
@@ -51,13 +41,13 @@ function cache(f::Function, id::String, expiry::Real, window::Real)
 
     # add new entries
     if isempty(readings) || (now-readings[end].timestamp) > expiry
-        if value == nothing
+        if value === missing
             # we might have read a value already, to populate value_cache
-            value = f()::Nullable
+            value = f()
         end
 
-        if !isnull(value)
-            push!(readings, Reading(now, get(value)))
+        if value !== nothing
+            push!(readings, Reading(now, value))
         end
     end
 
@@ -68,15 +58,15 @@ const value_cache = Dict{String,Vector}()
 """
     Cache a single sensor reading until it expires after `expiry` seconds.
 
-    Returns a nullable real, indicating whether a non-expired value could be acquired.
+    Returns `nothing` if no non-expired value could be acquired.
 """
 function cache(f::Function, id::String, expiry::Real)
     readings = cache(f, id, expiry, expiry)
     if isempty(readings)
-        return Nullable{eltype(eltype(readings))}()
+        return nothing
     else
         @assert length(readings) == 1
-        return Nullable(readings[1].value)
+        return readings[1].value
     end
 end
 
@@ -85,12 +75,12 @@ end
     Calculates a decaying average of a set of readings, controlling the amount of decay
     using the `constant` parameter (larger values result in more quickly vanishing values).
 """
-function decay(readings::Vector{Reading{T}}, window::Real, constant::Real=5)::Nullable{T} where {T}
+function decay(readings::Vector{Reading{T}}, window::Real, constant::Real=5)::Union{Nothing,T} where {T}
     @assert constant >= 0
     now = time()
 
     if isempty(readings)
-        return Nullable{T}()
+        return nothing
     end
 
     # exponential decay (with t ∈ 0:1):
@@ -98,11 +88,11 @@ function decay(readings::Vector{Reading{T}}, window::Real, constant::Real=5)::Nu
     #   weight(t) = e^(-t*decay)
     # but we normalize the weights in order to use a plain `sum` afterwards
     values = [reading.value for reading in readings]
-    weights = [e^(-constant*(now-reading.timestamp)/window) for reading in readings]
+    weights = [ℯ^(-constant*(now-reading.timestamp)/window) for reading in readings]
     normalized_weights = [weight/sum(weights) for weight in weights]
     value = convert(T, sum(normalized_weights .* values))
 
-    return Nullable(value)
+    return value
 end
 
 cache_and_decay(f::Function, id::String, expiry::Real, window::Real, constant::Real=5) =
@@ -123,20 +113,20 @@ end
 
 
 """Run a command, passing the process and its streams to a lambda (use with do-block)."""
-function execute(f::Function, cmd::Base.AbstractCmd, stdin=DevNull)
-    stdout = Pipe()
-    stderr = Pipe()
+function execute(f::Function, cmd::Base.AbstractCmd, in=devnull)
+    out = Pipe()
+    err = Pipe()
 
-    proc = spawn(cmd, (stdin,stdout,stderr))
+    proc = run(pipeline(cmd, stdin=in, stdout=out, stderr=out); wait=false)
 
-    close(stdout.in)
-    close(stderr.in)
+    close(out.in)
+    close(err.in)
 
     try
-        return f(proc, stdout, stderr)
+        return f(proc, out, err)
     finally
-        close(stdout)
-        close(stderr)
+        close(out)
+        close(err)
     end
 end
 

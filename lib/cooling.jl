@@ -1,8 +1,7 @@
 module Cooling
 
-using Util
-import Util: debug, trace
-using Sensors
+using ..Util
+using ..Sensors
 
 export disk, cpu
 
@@ -12,10 +11,10 @@ export disk, cpu
 """
 function air_temperature()::Float64
     temp = Sensor.ext()
-    if !isnull(temp) && 0 < get(temp) <= 40
+    if 0 < temp <= 40
         return temp
     else
-        return Nullable{Float64}()
+        return nothing
     end
 end
 
@@ -25,25 +24,25 @@ function duty(device::String, temp::Real, target::UnitRange{<:Real})
     T = promote_type(eltype(air_temp), eltype(target))
 
     if temp < target.start
-        trace("No cooling required for $device")
+        @trace "No cooling required for $device"
         return 0
-    elseif isnull(air_temp)
+    elseif air_temp === nothing
         # cannot adjust the temperature, so just rely on the target
         duty = range_scale(temp, target, 0:100)
-        trace("Cooling $device (unknown air temperature) requires fans at $(round(duty,1))%")
+        @trace "Cooling $device (unknown air temperature) requires fans at $(round(duty; digits=1))%"
         return duty
-    elseif temp <= get(air_temp)
-        warn("Cannot cool $device: air temperature of $(round(get(air_temp),1))°C "*
-             "exceeds lower-bound temperature of $(round(target.start,1))°C")
+    elseif temp <= air_temp
+        @warn "Cannot cool $device: air temperature of $(round(air_temp; digits=1))°C "*
+              "exceeds lower-bound temperature of $(round(target.start; digits=1))°C"
         return 0
     else
         # adjust the target range to compensate for an air temperature > target lower bound
         # (eg. if we aim for 30:50 with air at 39, it doesn't make sense to cool a 40 degree
         # device with a fan at 50% duty cycle)
-        adjusted_target = UnitRange(convert(T, max(get(air_temp), target.start)),
+        adjusted_target = UnitRange(convert(T, max(air_temp, target.start)),
                                     convert(T, target.stop))
         duty = range_scale(temp, adjusted_target, 0:100)
-        trace("Cooling $device requires fans at $(round(duty,1))%")
+        @trace "Cooling $device requires fans at $(round(duty; digits=1))%"
         return duty
     end
 end
@@ -54,9 +53,9 @@ end
     Tries to keep each disk between 30 and 40 degrees Celsius.
 """
 function disk(disks::Vector{String})
-    temps = map(get, filter(temp->!isnull(temp), map(Sensors.disk, disks)))
+    temps = filter(temp->temp !== nothing, map(Sensors.disk, disks))
     if isempty(temps)
-        warn("Could not query temperature of ", join(disks, ", ", " or "))
+        @warn "Could not query temperature of $(join(disks, ", ", " or "))"
         return 100
     else
         return duty("disk(s) "*join(disks, ", ", " and "), maximum(temps), 30:40)
@@ -69,11 +68,11 @@ end
 """
 function cpu()
     temp = Sensors.cpu()
-    if isnull(temp)
-        warn("Could not read CPU sensor")
+    if temp === nothing
+        @warn "Could not read CPU sensor"
         return 100
     else
-        return duty("CPU", get(temp), 40:70)
+        return duty("CPU", temp, 40:70)
     end
 end
 

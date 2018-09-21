@@ -1,7 +1,5 @@
 module IPMI
 
-using Util
-
 
 @enum Status ok critical nonrecoverable
 
@@ -21,9 +19,9 @@ struct Reading{T}
     unit::AbstractString
     status::Status
 
-    noncritical::Union{Void,UnitRange{T}}
-    critical::Union{Void,UnitRange{T}}
-    nonrecoverable::Union{Void,UnitRange{T}}
+    noncritical::Union{Nothing,UnitRange{T}}
+    critical::Union{Nothing,UnitRange{T}}
+    nonrecoverable::Union{Nothing,UnitRange{T}}
 end
 
 
@@ -45,7 +43,7 @@ function sensors()
         sensor == "Chassis Intru" && continue   # hard-to-parse sensors
 
         # figure out how to parse the output, and what to convert them to
-        parse_type = nothing
+        parse_type = missing
         if unit == "degrees C" || unit == "Volts"
             data_type = Float64
         elseif unit == "RPM"
@@ -54,7 +52,7 @@ function sensors()
         else
             error("Unknown unit for $sensor")
         end
-        if parse_type == nothing
+        if parse_type === missing
             parse_type = data_type
         end
 
@@ -96,8 +94,8 @@ function limits!(id::String, noncritical::UnitRange, critical::UnitRange, nonrec
         "lcr" => critical.start,
         "lnr" => nonrecoverable.start
     )
-    run(pipeline(`ipmitool sensor thresh $id lower $(vals["lnr"]) $(vals["lcr"]) $(vals["lnc"])`, stdout=DevNull))
-    run(pipeline(`ipmitool sensor thresh $id upper $(vals["unc"]) $(vals["ucr"]) $(vals["unr"])`, stdout=DevNull))
+    run(pipeline(`ipmitool sensor thresh $id lower $(vals["lnr"]) $(vals["lcr"]) $(vals["lnc"])`, stdout=devnull))
+    run(pipeline(`ipmitool sensor thresh $id upper $(vals["unc"]) $(vals["ucr"]) $(vals["unr"])`, stdout=devnull))
 end
 
 

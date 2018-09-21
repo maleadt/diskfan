@@ -1,10 +1,9 @@
 module Sensors
 
-using Util
-import Util: debug, trace
-using Disk
+using ..Util
+using ..Disk
 
-# all these methods return single numbers, wrapped in Nullable's, for sensor readings.
+# all these methods return single numbers, for sensor readings.
 # if the value is null, a transient error occurred (ie. couldn't be read, try again later).
 # for other errors, exceptions are thrown.
 #
@@ -13,6 +12,7 @@ using Disk
 
 # find out which thermal zone is the CPU's
 const sysfs_thermal = "/sys/class/thermal"
+const cpu_zone = Ref{String}()
 for entry in readdir(sysfs_thermal)
     startswith(entry, "thermal_zone") || continue
 
@@ -22,22 +22,22 @@ for entry in readdir(sysfs_thermal)
     thermal_type = readline(path)
     thermal_type == "x86_pkg_temp" || continue
 
-    isdefined(:cpu_zone) && error("Multiple CPU thermal zones")
-    global const cpu_zone = entry
+    isassigned(cpu_zone) && error("Multiple CPU thermal zones")
+    cpu_zone[] = entry
 end
-isdefined(:cpu_zone) || error("Could not find CPU thermal zone")
+isassigned(cpu_zone) || error("Could not find CPU thermal zone")
 
 
 """Determine the temperature of the CPU, in degrees Celsius."""
-function cpu()::Nullable{Float64}
+function cpu()::Union{Nothing,Float64}
     # CPU temperature is quote finicky, so we use a decaying average
     Util.cache_and_decay("Sensors.cpu", 5, 60) do
         # NOTE: we don't use IPMI here because reading from sysfs is much more efficient
         #       (vs. spawning `ipmitool` and parsing its output)
-        strval = readline(joinpath(sysfs_thermal, cpu_zone, "temp"))
+        strval = readline(joinpath(sysfs_thermal, cpu_zone[], "temp"))
         temp = parse(Int, strval) / 1000
-        trace("CPU at $(round(temp,1))°C")
-        return Nullable(temp)
+        @trace "CPU at $(round(temp; digits=1))°C"
+        return temp
     end
 end
 
@@ -53,13 +53,13 @@ end
 
    If the temperature cannot be read, NaN is returned.
 """
-function disk(device::String, keep=Disk.sleeping)::Nullable{Float64}
+function disk(device::String, keep=Disk.sleeping)::Union{Nothing,Float64}
     Util.cache("Sensors.disk.$device", 60) do
         # we use smartctl, and not hddtemp, because the latter wakes up drives. with
         # smartctl, we can read from a drive in STANDBY (but not from SLEEP)
 
         # determine smartctl command
-        nocheck = if keep == nothing
+        nocheck = if keep === nothing
             "never"
         elseif keep == Disk.sleeping
             "sleep"
@@ -80,26 +80,25 @@ function disk(device::String, keep=Disk.sleeping)::Nullable{Float64}
             at_list = false
             for line in eachline(out)
                 isempty(line) && continue
-                if ismatch(r"Device is in (.+) mode", line)
+                if occursin(r"Device is in (.+) mode", line)
                     @assert proc.exitcode == 2
-                    return Nullable{typeof(attributes)}()
+                    return nothing
                 elseif startswith(line, "ID#")
                     at_list = true
                 elseif at_list
                     entries = split(line)
-                    id = parse(Int, shift!(entries))
+                    id = parse(Int, popfirst!(entries))
                     attributes[id] = entries
                 end
             end
 
-            Nullable(attributes)
+            attributes
         end
-        if isnull(attributes)
-            return Nullable{Float64}()
-        elseif isempty(get(attributes))
+        if attributes === nothing
+            return nothing
+        elseif isempty(attributes)
             error("could not parse attributes")
         end
-        attributes = get(attributes)
 
         # check temperature attributes
         # FIXME: this isn't terribly robust (are these attributes the correct ones, etc)
@@ -112,8 +111,8 @@ function disk(device::String, keep=Disk.sleeping)::Nullable{Float64}
             error("Could not find SMART attribute for temperature of disk $device")
         end
 
-        trace("Disk $device at $(temp)°C")
-        return Nullable{Float64}(convert(Float64, temp))
+        @trace "Disk $device at $(temp)°C"
+        return convert(Float64, temp)
     end
 end
 
@@ -123,7 +122,7 @@ end
 
    Caches values for 1 minute.
 """
-function ext(id::Int=1)::Nullable{Float64}
+function ext(id::Int=1)::Union{Nothing,Float64}
     if id < 1
         error("invalid sensor id")
     end
@@ -134,7 +133,7 @@ function ext(id::Int=1)::Nullable{Float64}
             temps = Vector{Float64}()
             if !success(proc)
                 # probably a transient error (eg. some other process holding the serial port)
-                return Nullable{typeof(temps)}()
+                return nothing
             end
 
             # parse lines
@@ -144,19 +143,18 @@ function ext(id::Int=1)::Nullable{Float64}
                 push!(temps, parse(Float64, strval))
             end
 
-            trace("External sensor(s) at ", join(map(temp->round(temp,1), temps), ", ", " and "), "°C")
-            Nullable(temps)
+            @trace "External sensor(s) at $(join(map(temp->round(temp; digits=1), temps), ", ", " and "))°C"
+            temps
         end
-        if isnull(temps)
-            return Nullable{Float64}()
+        if temps === nothing
+            return nothing
         end
-        temps = get(temps)
 
         # return a single temperature
         if id > length(temps)
             error("invalid sensor id (requested sensor $id, but only got $(length(temps)) sensors)")
         end
-        Nullable(temps[id])
+        temps[id]
     end
 end
 

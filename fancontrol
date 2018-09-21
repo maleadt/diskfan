@@ -9,8 +9,7 @@ include("lib/cooling.jl")
 
 include("config.jl")
 
-using Util
-import Util: debug
+using .Util
 
 
 function main(args)
@@ -18,7 +17,7 @@ function main(args)
 
     ccall(:geteuid, Cint, ()) == 0 || error("Run this script as root.")
 
-    info("Checking fan limits")
+    @info "Checking fan limits"
     limits_changed = false
     data = IPMI.sensors()
     function check_limits!(fan, noncritical, critical, nonrecoverable)
@@ -40,24 +39,24 @@ function main(args)
     ## boxed Intel cooler
     limits_changed |= check_limits!("FAN4", 700:3300, 600:3500, 500:3700)
     if limits_changed
-        info("Limits have changed")
+        @info "Limits have changed"
         sleep(5)
     end
 
     if Fan.mode() != Fan.full
-        info("Enabling manual fan control")
+        @info "Enabling manual fan control"
         Fan.mode!(Fan.full)
         sleep(5)
     end
 
-    info("Resolving disk names")
+    @info "Resolving disk names"
     Disk.resolve!(PERIPHERAL_DISKS)
     Disk.resolve!(SYSTEM_DISKS)
 
 
     ## main
 
-    info("Entering main loop")
+    @info "Entering main loop"
     current_peripheral_duty = 0
     current_system_duty = 0
     while true
@@ -65,7 +64,7 @@ function main(args)
         let duty = Cooling.disk(PERIPHERAL_DISKS)
             duty = clamp(duty, MIN_DUTY, 100)
             if current_peripheral_duty != duty
-                debug("Setting peripheral fan to $(round(duty, 1))%")
+                @debug "Setting peripheral fan to $(round(duty; digits=1))%"
                 Fan.duty!(Fan.peripheral, duty)
                 current_peripheral_duty = duty
             end
@@ -75,7 +74,7 @@ function main(args)
         let duty = max(Cooling.disk(SYSTEM_DISKS), Cooling.cpu())
             duty = clamp(duty, MIN_DUTY, 100)
             if current_system_duty != duty
-                debug("Setting system fan to $(round(duty, 1))%")
+                @debug "Setting system fan to $(round(duty; digits=1))%"
                 Fan.duty!(Fan.system, duty)
                 current_system_duty = duty
             end

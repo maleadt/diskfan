@@ -5,8 +5,7 @@ include("lib/disk.jl")
 
 include("config.jl")
 
-using Util
-import Util: debug, trace
+using .Util
 
 
 function main(args)
@@ -14,19 +13,19 @@ function main(args)
 
     ccall(:geteuid, Cint, ()) == 0 || error("Run this script as root.")
 
-    info("Resolving disk names")
+    @info "Resolving disk names"
     Disk.resolve!(PERIPHERAL_DISKS)
     Disk.resolve!(SYSTEM_DISKS)
 
 
     ## main
 
-    info("Starting disk usage monitor")
+    @info "Starting disk usage monitor"
     disks = Set{String}(PERIPHERAL_DISKS ∪ SYSTEM_DISKS)
     @async Disk.monitor_usage()
     active_disks = Set(filter(device->Disk.power(device)==Disk.active, disks))
 
-    info("Entering main loop")
+    @info "Entering main loop"
     current_peripheral_duty = 0
     current_system_duty = 0
     i = 0
@@ -34,21 +33,21 @@ function main(args)
         # did any disk wake up?
         for device in setdiff(disks, active_disks)
             usage = Disk.usage(device)
-            trace("Suspended disk $device usage: $usage")
-            isnull(usage[1]) && continue
-            usage = get(usage[1])    # 1-min window
+            @trace "Suspended disk $device usage: $usage"
+            usage[1] === nothing && continue
+            usage = usage[1]    # 1-min window
 
             if usage > 0
-                debug("Disk $device is now active")
+                @debug "Disk $device is now active"
                 if Disk.power(device) != Disk.active
-                    warn("Disk $device should be active, but isn't?")
+                    @warn "Disk $device should be active, but isn't?"
                 else
                     push!(active_disks, device)
                 end
             elseif i%60 == 0
                 # every 60 minutes, check if all disks assumed inactive really are
                 if Disk.power(device) == Disk.active
-                    warn("Disk $device should be inactive, but isn't?")
+                    @warn "Disk $device should be inactive, but isn't?"
                     push!(active_disks, device)
                 end
             end
@@ -57,12 +56,12 @@ function main(args)
         # do we need to put any disk to sleep?
         for device in active_disks
             usage = Disk.usage(device)
-            trace("Active disk $device usage: $usage")
-            isnull(usage[3]) && continue
-            usage = get(usage[3])    # 15-min window
+            @trace "Active disk $device usage: $usage"
+            usage[3] === nothing && continue
+            usage = usage[3]    # 15-min window
 
             if usage == 0
-                debug("Suspending disk $device")
+                @debug "Suspending disk $device"
                 # NOTE: we put disks in standby, not sleep, because
                 # - munin plugins (hddtemp, smartctl) wake the disk from sleep, but not standby
                 # - waking the disks from sleep seems to fail sometimes:
